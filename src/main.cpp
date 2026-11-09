@@ -119,7 +119,7 @@ StudyOptions parse_study_options(const std::vector<std::string_view>& arguments)
 
     if (options.output.empty()) {
         options.output = std::filesystem::path("results") /
-            ("capacity_C" + std::format("{:.2f}", options.threshold) + "_N" + std::to_string(options.dimensions) + ".csv");
+            ("capacity_N" + std::to_string(options.dimensions) + ".csv");
     }
     return options;
 }
