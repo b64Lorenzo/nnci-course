@@ -4,6 +4,7 @@ import math
 from fractions import Fraction
 from math import comb
 from pathlib import Path
+import matplotlib.pyplot as plt
 
 
 _REQUIRED_COLUMNS = {"N", "P", "nD", "successes", "Q_ls"}
@@ -19,9 +20,12 @@ def theoretical_probability(dimensions: int, patterns: int) -> float:
 
 
 def read_capacity_csv(path: str | Path) -> list[dict[str, int | float]]:
+
     rows = []
+
     with Path(path).open(newline="", encoding="utf-8") as file:
         reader = csv.DictReader(file)
+
         if reader.fieldnames is None or not _REQUIRED_COLUMNS.issubset(reader.fieldnames):
             raise ValueError(f"{path}: expected columns {', '.join(sorted(_REQUIRED_COLUMNS))}")
 
@@ -34,6 +38,7 @@ def read_capacity_csv(path: str | Path) -> list[dict[str, int | float]]:
                 datasets = int(row["nD"])
                 successes = int(row["successes"])
                 rate = float(row["Q_ls"])
+
             except (TypeError, ValueError) as error:
                 raise ValueError(f"{path}:{line_number}: invalid numeric value") from error
 
@@ -58,10 +63,7 @@ def read_capacity_csv(path: str | Path) -> list[dict[str, int | float]]:
 
 
 def plot_capacity(csv_paths: list[str | Path], output_path: str | Path) -> None:
-    try:
-        import matplotlib.pyplot as plt
-    except ImportError as error:
-        raise RuntimeError("Install the optional plotting package: python -m pip install -r requirements-plot.txt") from error
+
 
     by_dimension: dict[int, list[dict[str, int | float]]] = {}
     for path in csv_paths:
@@ -72,12 +74,14 @@ def plot_capacity(csv_paths: list[str | Path], output_path: str | Path) -> None:
     for dimensions, rows in sorted(by_dimension.items()):
         rows.sort(key=lambda row: int(row["P"]))
         patterns = [int(row["P"]) for row in rows]
+
         if len(patterns) != len(set(patterns)):
             raise ValueError(f"duplicate P values for N={dimensions}")
 
         alpha = [p / dimensions for p in patterns]
         empirical = [float(row["Q_ls"]) for row in rows]
         theory = [theoretical_probability(dimensions, p) for p in patterns]
+
         axis.plot(alpha, empirical, marker="o", label=f"empirical, N={dimensions}")
         axis.plot(alpha, theory, linestyle="--", label=f"theory, N={dimensions}")
 
@@ -100,6 +104,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Plot empirical perceptron separability results.")
     parser.add_argument("csv", nargs="+", help="one or more capacity-study CSV files")
     parser.add_argument("--output", default="results/a1_capacity.png", help="output plot path")
+    parser.add_argument("--version", action="version", version="%(prog)s 1.0")
+
     arguments = parser.parse_args()
 
     try:
