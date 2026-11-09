@@ -1,0 +1,3 @@
+#pragma once
+
+#define NNCI_VERSION "@PROJECT_VERSION@"

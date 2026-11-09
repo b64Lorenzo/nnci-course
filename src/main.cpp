@@ -1,5 +1,6 @@
 #include "nnci/assignments.hpp"
 #include "nnci/logging.hpp"
+#include "nnci/version.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -41,6 +42,7 @@ Value parse_number(std::string_view text, std::string_view option) {
 
 void print_usage() {
     std::cout << "Usage:\n"
+              << "  nnci --version\n"
               << "  nnci [--debug] a1-study [options]\n\n"
               << "Study options:\n"
               << "  --dimensions N    feature count (default: 20)\n"
@@ -185,6 +187,10 @@ int main(int argc, char* argv[]) {
         const std::string_view argument(argv[index]);
         if (argument == "--help") {
             print_usage();
+            return 0;
+        }
+        if (argument == "--version") {
+            std::cout << "nnci " << NNCI_VERSION << '\n';
             return 0;
         }
         if (argument == "--debug") {

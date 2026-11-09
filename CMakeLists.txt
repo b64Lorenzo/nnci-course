@@ -25,6 +25,25 @@ target_link_libraries(nnci_perceptron PUBLIC nnci_logging)
 add_executable(nnci src/main.cpp)
 target_link_libraries(nnci PRIVATE nnci_logging nnci_perceptron)
 
+set(NNCI_GENERATED_INCLUDE_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+file(MAKE_DIRECTORY "${NNCI_GENERATED_INCLUDE_DIR}/nnci")
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/version.hpp.in"
+    "${NNCI_GENERATED_INCLUDE_DIR}/nnci/version.hpp"
+    @ONLY
+)
+target_include_directories(nnci PRIVATE "${NNCI_GENERATED_INCLUDE_DIR}")
+
+if(WIN32)
+    enable_language(RC)
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/resources/version.rc.in"
+        "${CMAKE_CURRENT_BINARY_DIR}/version.rc"
+        @ONLY
+    )
+    target_sources(nnci PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/version.rc")
+endif()
+
 if(MSVC)
     target_compile_options(nnci_logging PRIVATE /W4 /permissive-)
     target_compile_options(nnci_perceptron PRIVATE /W4 /permissive-)
@@ -46,7 +65,20 @@ if(BUILD_TESTING)
         target_compile_options(nnci_perceptron_tests PRIVATE -Wall -Wextra -Wpedantic)
     endif()
 
-    add_test(NAME perceptron COMMAND nnci_perceptron_tests)
+    add_test(NAME nnci_cli_version COMMAND nnci --version)
+    set_tests_properties(nnci_cli_version PROPERTIES
+        PASS_REGULAR_EXPRESSION "nnci ${PROJECT_VERSION}"
+    )
+    if(WIN32)
+        find_program(POWERSHELL_EXECUTABLE NAMES pwsh powershell REQUIRED)
+        add_test(NAME nnci_version_metadata
+            COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -ExecutionPolicy Bypass
+                    -File "${CMAKE_SOURCE_DIR}/tests/verify_exe_version.ps1"
+                    -Executable "$<TARGET_FILE:nnci>"
+                    -ExpectedVersion "${PROJECT_VERSION}"
+        )
+    endif()
+
     add_test(NAME a1_study_smoke COMMAND nnci a1-study
         --dimensions 4 --datasets 2 --max-epochs 5
         --p-min 1 --p-max 4 --p-step 1 --seed 13

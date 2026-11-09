@@ -58,17 +58,8 @@ jobs:
         run: cmake --build build --config Release
 
       - name: Test
-        shell: pwsh
-        env:
-          RELEASE_VERSION: ${{ steps.version.outputs.version }}
         run: |
-          if ($env:RELEASE_VERSION -eq "0.1.0") {
-            Write-Warning "Initial-release exception: skipping the known failing perceptron test; all other CTest tests still run."
-            ctest --test-dir build -C Release -E "^perceptron$" --output-on-failure
-          } else {
-            ctest --test-dir build -C Release --output-on-failure
-          }
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ctest --test-dir build -C Release --output-on-failure
 
       - name: Smoke-test executable
         shell: pwsh
