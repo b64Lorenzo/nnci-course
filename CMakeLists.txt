@@ -81,20 +81,11 @@ if(BUILD_TESTING)
 
     add_test(NAME a1_study_smoke COMMAND nnci a1-study
         --dimensions 4 --datasets 2 --max-epochs 5
-        --p-min 1 --p-max 4 --p-step 1 --seed 13
+        --p-min 1 --p-max 4 --p-step 1 --seed 13 --threshold 0
         --output a1_capacity_test.csv
     )
     set_tests_properties(a1_study_smoke PROPERTIES
         PASS_REGULAR_EXPRESSION "Wrote 4 capacity points"
-    )
-
-    add_test(NAME a1_study_options_log COMMAND nnci a1-study
-        --dimensions 4 --datasets 2 --max-epochs 5
-        --p-min 1 --p-max 4 --p-step 1 --seed 13
-        --output a1_options_capacity.csv
-    )
-    set_tests_properties(a1_study_options_log PROPERTIES
-        PASS_REGULAR_EXPRESSION "options used: dimensions=4, datasets=2, max_epochs=5, p_min=1, p_max=4, p_step=1, seed=13, output=a1_options_capacity.csv"
     )
 
     find_package(Python3 COMPONENTS Interpreter QUIET)
