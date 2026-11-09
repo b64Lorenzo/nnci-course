@@ -175,7 +175,7 @@ void run_study(const StudyOptions& options, nnci::Logger& logger) {
 
     const auto points = nnci::estimate_perceptron_capacity(
 
-        options.dimensions, make_alphas(options), options.datasets, options.max_epochs, options.seed, &logger);
+        options.dimensions, make_alphas(options), options.datasets, options.max_epochs, options.seed, options.threshold, &logger);
 
     write_capacity_csv(options, points);
 
