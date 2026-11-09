@@ -21,10 +21,7 @@ def theoretical_probability(dimensions: int, patterns: int) -> float:
 
 def read_capacity_csv(path: str | Path) -> list[dict[str, int | float]]:
 
-    try:
-        import matplotlib.pyplot as plt
-    except ImportError as error:
-        raise RuntimeError("Install matplotlib: py -m pip install -r requirements-plot.txt") from error
+  
 
     rows = []
 
@@ -69,6 +66,10 @@ def read_capacity_csv(path: str | Path) -> list[dict[str, int | float]]:
 
 def plot_capacity(csv_paths: list[str | Path], output_path: str | Path) -> None:
 
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError as error:
+        raise RuntimeError("Install matplotlib: py -m pip install -r requirements-plot.txt") from error
 
     by_dimension: dict[int, list[dict[str, int | float]]] = {}
     for path in csv_paths:
