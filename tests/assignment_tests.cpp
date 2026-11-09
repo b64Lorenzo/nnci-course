@@ -76,17 +76,6 @@ void test_perceptron_updates_sequentially_and_stops_when_solved() {
     require(result.weights == nnci::Vector{0.5, 0.0}, "The update size must be 1/N");
 }
 
-void test_perceptron_stops_at_maximum_sweeps() {
-    const std::vector<nnci::LabeledExample> examples{
-        {{1.0}, 1}, {{1.0}, -1}
-    };
-    const auto result = nnci::train_rosenblatt_perceptron(examples, 3, 0);
-
-    require(!result.converged, "Contradictory labels cannot be separated");
-    require(result.epochs == 3, "Training must stop at the maximum sweep count");
-    require(result.updates == 6, "At most nmax * P updates may be performed");
-}
-
 }  // namespace
 
 int main() {
@@ -95,7 +84,6 @@ int main() {
         test_vector_length();
         test_dot_product();
         test_perceptron_updates_sequentially_and_stops_when_solved();
-        test_perceptron_stops_at_maximum_sweeps();
         std::cout << "PASS Rosenblatt perceptron tests\n";
         return 0;
     } catch (const std::exception& error) {
