@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - VERSION
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -83,6 +84,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.version.outputs.tag }}
         run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           $existing = @(git tag --list $env:RELEASE_TAG)
           if ($existing.Count -eq 0) {
             git tag -a $env:RELEASE_TAG $env:GITHUB_SHA -m "Release $env:RELEASE_TAG"
