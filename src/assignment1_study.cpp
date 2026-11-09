@@ -40,7 +40,7 @@ std::vector<CapacityPoint> estimate_perceptron_capacity(
     // Estimate the capacity of a perceptron by generating random datasets and training on them
 
     std::size_t dimensions, const std::vector<double>& alphas,
-    std::size_t datasets_per_point, std::size_t max_epochs, std::uint64_t seed,
+    std::size_t datasets_per_point, std::size_t max_epochs, std::uint64_t seed, double threshold,
     Logger* logger) {
     if (dimensions == 0 || alphas.empty() || datasets_per_point == 0 || max_epochs == 0) {
         throw std::invalid_argument("Dimension, alpha values, trials, and epochs must be positive");
@@ -79,7 +79,7 @@ std::vector<CapacityPoint> estimate_perceptron_capacity(
 
             const auto examples = make_random_binary_data(count, dimensions, random());
 
-            if (train_rosenblatt_perceptron(examples, max_epochs, logger).converged) {
+            if (train_rosenblatt_perceptron(examples, max_epochs, threshold, logger).converged) {
                 ++successes;
             }
 

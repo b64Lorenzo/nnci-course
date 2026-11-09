@@ -26,6 +26,7 @@ struct StudyOptions {
     std::size_t p_max = 0;
     std::size_t p_step = 0;
     std::uint64_t seed = 2026;
+    double threshold = 0.0;
     std::filesystem::path output;
 };
 
@@ -52,6 +53,7 @@ void print_usage() {
               << "  --p-max P         last pattern count (default: 3N)\n"
               << "  --p-step P        pattern-count step (default: N/10)\n"
               << "  --seed SEED       random seed (default: 2026)\n"
+              << "  --threshold c     potential threshold (default: 0.0)\n"
               << "  --output FILE     CSV output path (default: results/capacity_N<N>.csv)\n";
 }
 
@@ -76,8 +78,12 @@ StudyOptions parse_study_options(const std::vector<std::string_view>& arguments)
             options.p_max = parse_number<std::size_t>(value, option);
         } else if (option == "--p-step") {
             options.p_step = parse_number<std::size_t>(value, option);
-        } else if (option == "--seed") {
+        }
+        else if (option == "--seed") {
             options.seed = parse_number<std::uint64_t>(value, option);
+        }
+        else if (option == "--threshold") {
+            options.threshold = parse_number<double>(value, option);
         } else if (option == "--output") {
             options.output = std::filesystem::path(value);
         } else {
@@ -163,6 +169,7 @@ void run_study(const StudyOptions& options, nnci::Logger& logger) {
                  ", p_max=" + std::to_string(options.p_max) +
                  ", p_step=" + std::to_string(options.p_step) +
                  ", seed=" + std::to_string(options.seed) +
+                 ", threshold=" + std::to_string(options.threshold) +
                  ", output=" + options.output.string());
 
 

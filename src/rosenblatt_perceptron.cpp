@@ -36,7 +36,7 @@ void log_error(Logger* logger, const PerceptronError& error) {
 }  // namespace
 
 PerceptronResult train_rosenblatt_perceptron(
-    const std::vector<LabeledExample>& examples, std::size_t max_epochs,
+    const std::vector<LabeledExample>& examples, std::size_t max_epochs, double threshold,
     Logger* logger) {
 
     // Validate the maximum epochs parameter
@@ -96,7 +96,7 @@ PerceptronResult train_rosenblatt_perceptron(
                     throw PerceptronError(PerceptronErrorCode::NumericalFailure, "Potential became non-finite");
                 }
 
-                if (potential <= 0.0) {
+                if (potential <= threshold) {
 
                     // Update the weights according to the Rosenblatt rule
 

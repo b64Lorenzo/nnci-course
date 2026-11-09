@@ -52,11 +52,11 @@ struct CapacityPoint {
 [[nodiscard]] std::vector<LabeledExample> make_random_binary_data(
     std::size_t count, std::size_t dimensions, std::uint64_t seed);
 [[nodiscard]] PerceptronResult train_rosenblatt_perceptron(
-    const std::vector<LabeledExample>& examples, std::size_t max_epochs,
+    const std::vector<LabeledExample>& examples, std::size_t max_epochs, double threshold,
     Logger* logger = nullptr);
 [[nodiscard]] std::vector<CapacityPoint> estimate_perceptron_capacity(
     std::size_t dimensions, const std::vector<double>& alphas,
-    std::size_t datasets_per_point, std::size_t max_epochs, std::uint64_t seed,
+    std::size_t datasets_per_point, std::size_t max_epochs, std::uint64_t seed, double threshold,
     Logger* logger = nullptr);
 
 }  // namespace nnci
