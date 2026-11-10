@@ -90,7 +90,7 @@ jobs:
           Run nnci.exe from any working directory. Plotting requires Python 3 and
           matplotlib. Install the plotting dependency with:
 
-              python -m pip install -r requirements-plot.txt
+              py -3 -m pip install -r requirements-plot.txt
 
           Example:
               .\nnci.exe perceptron --strength --dimensions 20 --patterns 15 --datasets 50 --max-epochs 100
@@ -101,8 +101,10 @@ jobs:
           Expand-Archive "dist/nnci-windows-x64.zip" $check -Force
           if (-not (Test-Path "$check/nnci.exe") -or
               -not (Test-Path "$check/scripts/plot_strength.py") -or
-              -not (Test-Path "$check/scripts/plot_capacity.py")) {
-            throw "Windows package is missing the executable or plotting scripts"
+              -not (Test-Path "$check/scripts/plot_capacity.py") -or
+              -not (Test-Path "$check/requirements-plot.txt") -or
+              -not (Test-Path "$check/README.txt")) {
+            throw "Windows package is missing a required executable, script, or dependency file"
           }
           $smoke = Join-Path $env:RUNNER_TEMP "nnci-package-smoke"
           New-Item -ItemType Directory -Force $smoke | Out-Null

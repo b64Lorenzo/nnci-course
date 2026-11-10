@@ -268,12 +268,35 @@ int run_python_script(
             "Plotting script is missing beside the executable: " + script_path.string());
     }
 
-    // Paths are quoted so spaces in filenames work.
-    const std::string command =
-        "python \"" + script_path.string() + "\" \"" + input.string() +
-        "\" --output \"" + output.string() + "\"";
+#if defined(_WIN32)
+    const std::vector<std::string> interpreters{"py -3", "python"};
+    const std::string quiet_redirect = ">NUL 2>&1";
+#else
+    const std::vector<std::string> interpreters{"python3", "python"};
+    const std::string quiet_redirect = ">/dev/null 2>&1";
+#endif
 
-    return std::system(command.c_str());
+    for (const auto& interpreter : interpreters) {
+        const auto probe = interpreter + " -c \"import matplotlib\" " + quiet_redirect;
+        if (std::system(probe.c_str()) != 0)
+            continue;
+
+        // Paths are quoted so spaces in filenames work.
+        const std::string command =
+            interpreter + " \"" + script_path.string() + "\" \"" + input.string() +
+            "\" --output \"" + output.string() + "\"";
+        return std::system(command.c_str());
+    }
+
+#if defined(_WIN32)
+    throw std::runtime_error(
+        "Could not find Python with matplotlib. Install it with: "
+        "py -3 -m pip install -r requirements-plot.txt");
+#else
+    throw std::runtime_error(
+        "Could not find Python with matplotlib. Install it with: "
+        "python3 -m pip install -r requirements-plot.txt");
+#endif
 }
 
 void run_capacity_csv(

@@ -1,6 +1,7 @@
 import argparse
 import csv
 import math
+import os
 from pathlib import Path
 
 
@@ -37,8 +38,9 @@ def plot_strength(csv_path: str | Path, output_path: str | Path) -> None:
     try:
         import matplotlib.pyplot as plt
     except ImportError as error:
+        installer = "py -3 -m pip" if os.name == "nt" else "python3 -m pip"
         raise RuntimeError(
-            "Install matplotlib: py -m pip install -r requirements-plot.txt"
+            f"matplotlib is missing; install requirements-plot.txt with {installer}"
         ) from error
 
     values = read_strengths(csv_path)

@@ -1,6 +1,7 @@
 import argparse
 import csv
 import math
+import os
 from fractions import Fraction
 from math import comb
 from pathlib import Path
@@ -69,7 +70,10 @@ def plot_capacity(csv_paths: list[str | Path], output_path: str | Path) -> None:
     try:
         import matplotlib.pyplot as plt
     except ImportError as error:
-        raise RuntimeError("Install matplotlib: python -m pip install -r requirements-plot.txt") from error
+        installer = "py -3 -m pip" if os.name == "nt" else "python3 -m pip"
+        raise RuntimeError(
+            f"matplotlib is missing; install requirements-plot.txt with {installer}"
+        ) from error
 
     by_dimension: dict[int, list[dict[str, int | float]]] = {}
     for path in csv_paths:
