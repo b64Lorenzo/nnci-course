@@ -65,6 +65,9 @@ if(BUILD_TESTING)
         target_compile_options(nnci_perceptron_tests PRIVATE -Wall -Wextra -Wpedantic)
     endif()
 
+
+    add_test(NAME nnci_perceptron_unit COMMAND nnci_perceptron_tests)
+
     add_test(NAME nnci_cli_version COMMAND nnci --version)
     set_tests_properties(nnci_cli_version PROPERTIES
         PASS_REGULAR_EXPRESSION "nnci ${PROJECT_VERSION}"
@@ -79,13 +82,33 @@ if(BUILD_TESTING)
         )
     endif()
 
-    add_test(NAME a1_study_smoke COMMAND nnci a1-study
-        --dimensions 4 --datasets 2 --max-epochs 5
-        --p-min 1 --p-max 4 --p-step 1 --seed 13 --threshold 0
-        --output a1_capacity_test.csv
+    add_test(NAME perceptron_capacity_smoke
+        COMMAND nnci perceptron --capacity
+            --dimensions 4
+            --datasets 2
+            --max-epochs 5
+            --p-min 1
+            --p-max 4
+            --p-step 1
+            --seed 13
+            --threshold 0
+            --output results/capacity_smoke.csv
     )
-    set_tests_properties(a1_study_smoke PROPERTIES
+    set_tests_properties(perceptron_capacity_smoke PROPERTIES
         PASS_REGULAR_EXPRESSION "Wrote 4 capacity points"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    )
+
+
+    add_test(NAME perceptron_ncapacity_combined_plot_smoke
+        COMMAND nnci perceptron --NCapacity 2 4 2
+            --datasets 2
+            --max-epochs 5
+            --seed 13
+    )
+    set_tests_properties(perceptron_ncapacity_combined_plot_smoke PROPERTIES
+        PASS_REGULAR_EXPRESSION "Saved combined capacity plot to"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     )
 
     find_package(Python3 COMPONENTS Interpreter QUIET)

@@ -76,6 +76,22 @@ void test_perceptron_updates_sequentially_and_stops_when_solved() {
     require(result.weights == nnci::Vector{0.5, 0.0}, "The update size must be 1/N");
 }
 
+void test_embedding_strengths_are_pattern_indexed() {
+    const std::vector<nnci::LabeledExample> examples{
+        {{1.0}, 1}, {{-1.0}, -1}, {{1.0}, 1}
+    };
+    const auto result = nnci::train_rosenblatt_perceptron(examples, 5, 0);
+
+    require(result.strengths.size() == examples.size(),
+            "There must be one embedding strength per training pattern");
+    require(result.converged,
+            "The constructed one-dimensional dataset should converge");
+    require(result.strengths[0] == 1.0 &&
+            result.strengths[1] == 0.0 &&
+            result.strengths[2] == 0.0,
+            "Each update must increment the strength of the pattern that caused it");
+}
+
 }  // namespace
 
 int main() {
@@ -84,6 +100,7 @@ int main() {
         test_vector_length();
         test_dot_product();
         test_perceptron_updates_sequentially_and_stops_when_solved();
+        test_embedding_strengths_are_pattern_indexed();
         std::cout << "PASS Rosenblatt perceptron tests\n";
         return 0;
     } catch (const std::exception& error) {

@@ -39,6 +39,7 @@ struct PerceptronResult {
     std::size_t epochs;
     std::size_t updates;
     bool converged;
+    Vector strengths;
 };
 
 struct CapacityPoint {
@@ -49,14 +50,24 @@ struct CapacityPoint {
     double success_rate;
 };
 
+// nodiscard indicates that the return value should not be ignored by the caller
+
 [[nodiscard]] std::vector<LabeledExample> make_random_binary_data(
     std::size_t count, std::size_t dimensions, std::uint64_t seed);
+
 [[nodiscard]] PerceptronResult train_rosenblatt_perceptron(
     const std::vector<LabeledExample>& examples, std::size_t max_epochs, double threshold,
     Logger* logger = nullptr);
+
 [[nodiscard]] std::vector<CapacityPoint> estimate_perceptron_capacity(
     std::size_t dimensions, const std::vector<double>& alphas,
     std::size_t datasets_per_point, std::size_t max_epochs, std::uint64_t seed, double threshold,
     Logger* logger = nullptr);
+
+// Returns one embedding-strength vector per converged trial.
+// Each vector has one x^mu value per training pattern.
+
+[[nodiscard]] std::vector<Vector> collect_converged_strengths(
+    std::size_t dimensions, std::size_t patterns, std::size_t trials, std::size_t max_epochs, std::uint64_t seed, double threshold, Logger* logger = nullptr);
 
 }  // namespace nnci
