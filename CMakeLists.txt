@@ -24,6 +24,16 @@ target_link_libraries(nnci_perceptron PUBLIC nnci_logging)
 
 add_executable(nnci src/main.cpp)
 target_link_libraries(nnci PRIVATE nnci_logging nnci_perceptron)
+add_custom_command(TARGET nnci POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_FILE_DIR:nnci>/scripts"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/scripts/plot_capacity.py"
+            "$<TARGET_FILE_DIR:nnci>/scripts/plot_capacity.py"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/scripts/plot_strength.py"
+            "$<TARGET_FILE_DIR:nnci>/scripts/plot_strength.py"
+    COMMENT "Copying plotting scripts beside nnci"
+)
 
 set(NNCI_GENERATED_INCLUDE_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
 file(MAKE_DIRECTORY "${NNCI_GENERATED_INCLUDE_DIR}/nnci")
@@ -109,6 +119,21 @@ if(BUILD_TESTING)
     set_tests_properties(perceptron_ncapacity_combined_plot_smoke PROPERTIES
         PASS_REGULAR_EXPRESSION "Saved combined capacity plot to"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    )
+
+    add_test(NAME perceptron_strength_plot_external_working_directory
+        COMMAND nnci perceptron --strength
+            --dimensions 2
+            --patterns 2
+            --datasets 10
+            --max-epochs 100
+            --seed 4
+    )
+    set(NNCI_TEST_WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-working-directory")
+    file(MAKE_DIRECTORY "${NNCI_TEST_WORKING_DIRECTORY}")
+    set_tests_properties(perceptron_strength_plot_external_working_directory PROPERTIES
+        PASS_REGULAR_EXPRESSION "Saved strength histogram to"
+        WORKING_DIRECTORY "${NNCI_TEST_WORKING_DIRECTORY}"
     )
 
     find_package(Python3 COMPONENTS Interpreter QUIET)

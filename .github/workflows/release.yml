@@ -74,6 +74,45 @@ jobs:
           & $exe --help
           if ($LASTEXITCODE -ne 0) { throw "Executable help smoke test failed" }
 
+      - name: Package and smoke-test Windows distribution
+        shell: pwsh
+        run: |
+          $packageRoot = "dist/nnci-windows-x64"
+          New-Item -ItemType Directory -Force "$packageRoot/scripts" | Out-Null
+          Copy-Item "build/Release/nnci.exe" "$packageRoot/nnci.exe"
+          Copy-Item "build/Release/scripts/plot_capacity.py" "$packageRoot/scripts/plot_capacity.py"
+          Copy-Item "build/Release/scripts/plot_strength.py" "$packageRoot/scripts/plot_strength.py"
+          Copy-Item "requirements-plot.txt" "$packageRoot/requirements-plot.txt"
+          @'
+          NNCI Windows x64
+
+          Extract the entire package and keep the scripts folder beside nnci.exe.
+          Run nnci.exe from any working directory. Plotting requires Python 3 and
+          matplotlib. Install the plotting dependency with:
+
+              python -m pip install -r requirements-plot.txt
+
+          Example:
+              .\nnci.exe perceptron --strength --dimensions 20 --patterns 15 --datasets 50 --max-epochs 100
+          '@ | Set-Content "$packageRoot/README.txt"
+          Compress-Archive -Path "$packageRoot/*" -DestinationPath "dist/nnci-windows-x64.zip" -Force
+
+          $check = Join-Path $env:RUNNER_TEMP "nnci-package-check"
+          Expand-Archive "dist/nnci-windows-x64.zip" $check -Force
+          if (-not (Test-Path "$check/nnci.exe") -or
+              -not (Test-Path "$check/scripts/plot_strength.py") -or
+              -not (Test-Path "$check/scripts/plot_capacity.py")) {
+            throw "Windows package is missing the executable or plotting scripts"
+          }
+          $smoke = Join-Path $env:RUNNER_TEMP "nnci-package-smoke"
+          New-Item -ItemType Directory -Force $smoke | Out-Null
+          Push-Location $smoke
+          & "$check/nnci.exe" perceptron --strength --dimensions 2 --patterns 2 --datasets 10 --max-epochs 100 --seed 4
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path "results/strength_histogram.png")) {
+            throw "Extracted package could not plot from an unrelated working directory"
+          }
+          Pop-Location
+
       - name: Tag commit and publish release
         shell: pwsh
         env:
@@ -90,7 +129,7 @@ jobs:
           git push origin "refs/tags/$env:RELEASE_TAG"
           if ($LASTEXITCODE -ne 0) { throw "Could not push release tag" }
 
-          gh release create $env:RELEASE_TAG "build/Release/nnci.exe" `
+          gh release create $env:RELEASE_TAG "dist/nnci-windows-x64.zip" `
             --verify-tag --title $env:RELEASE_TAG --generate-notes
           if ($LASTEXITCODE -ne 0) { throw "Could not create GitHub release" }
 
@@ -99,6 +138,6 @@ jobs:
           $release = $releaseJson | ConvertFrom-Json
           $assets = @($release.assets)
           if ($release.tagName -ne $env:RELEASE_TAG -or
-              $assets.Count -ne 1 -or $assets[0].name -ne "nnci.exe") {
-            throw "Expected release $env:RELEASE_TAG to contain only nnci.exe"
+              $assets.Count -ne 1 -or $assets[0].name -ne "nnci-windows-x64.zip") {
+            throw "Expected release $env:RELEASE_TAG to contain only nnci-windows-x64.zip"
           }

@@ -258,12 +258,19 @@ void write_capacity_csv(
 
 
 int run_python_script(
+    const std::filesystem::path& executable_directory,
     const std::filesystem::path& script,
     const std::filesystem::path& input,
     const std::filesystem::path& output) {
+    const auto script_path = executable_directory / script;
+    if (!std::filesystem::is_regular_file(script_path)) {
+        throw std::runtime_error(
+            "Plotting script is missing beside the executable: " + script_path.string());
+    }
+
     // Paths are quoted so spaces in filenames work.
     const std::string command =
-        "python \"" + script.string() + "\" \"" + input.string() +
+        "python \"" + script_path.string() + "\" \"" + input.string() +
         "\" --output \"" + output.string() + "\"";
 
     return std::system(command.c_str());
@@ -330,13 +337,15 @@ void combine_capacity_csvs(
 
 void run_capacity_and_plot(
     const PerceptronOptions& options,
-    nnci::Logger& logger) {
+    nnci::Logger& logger,
+    const std::filesystem::path& executable_directory) {
     run_capacity_csv(options, logger);
 
     auto plot_path = options.output;
     plot_path.replace_extension(".png");
 
     if (run_python_script(
+            executable_directory,
             "scripts/plot_capacity.py", options.output, plot_path) != 0) {
         throw std::runtime_error("Capacity plotting script failed");
     }
@@ -346,7 +355,8 @@ void run_capacity_and_plot(
 
 void run_n_capacity(
     const PerceptronOptions& options,
-    nnci::Logger& logger) {
+    nnci::Logger& logger,
+    const std::filesystem::path& executable_directory) {
     std::vector<std::filesystem::path> csv_paths;
 
     for (std::size_t dimensions = options.n_start;;) {
@@ -382,6 +392,7 @@ void run_n_capacity(
     combine_capacity_csvs(csv_paths, combined_csv);
 
     if (run_python_script(
+            executable_directory,
             "scripts/plot_capacity.py", combined_csv, combined_plot) != 0) {
         throw std::runtime_error("Combined capacity plotting script failed");
     }
@@ -413,7 +424,8 @@ void write_strength_csv(
 
 void run_strength(
     const PerceptronOptions& options,
-    nnci::Logger& logger) {
+    nnci::Logger& logger,
+    const std::filesystem::path& executable_directory) {
     const auto strengths = nnci::collect_converged_strengths(
         options.dimensions,
         options.patterns,
@@ -434,7 +446,8 @@ void run_strength(
 
     write_strength_csv(csv, strengths);
 
-    if (run_python_script("scripts/plot_strength.py", csv, png) != 0)
+    if (run_python_script(
+            executable_directory, "scripts/plot_strength.py", csv, png) != 0)
         throw std::runtime_error("Strength plotting script failed");
 
     std::cout << "Converged datasets: " << strengths.size()
@@ -443,19 +456,20 @@ void run_strength(
 
 void run_perceptron(
     const PerceptronOptions& options,
-    nnci::Logger& logger) {
+    nnci::Logger& logger,
+    const std::filesystem::path& executable_directory) {
     if (options.n_start != 0) {
-        run_n_capacity(options, logger);
+        run_n_capacity(options, logger, executable_directory);
         return;
     }
 
     if (options.capacity) {
-        run_capacity_and_plot(options, logger);
+        run_capacity_and_plot(options, logger, executable_directory);
         return;
     }
 
     if (options.strength) {
-        run_strength(options, logger);
+        run_strength(options, logger, executable_directory);
         return;
     }
 
@@ -484,6 +498,8 @@ void run_perceptron(
 
 
 int main(int argc, char* argv[]) {
+    const auto executable_directory =
+        std::filesystem::absolute(argv[0]).parent_path();
     bool debug = false;
     std::string_view command;
     std::vector<std::string_view> arguments;
@@ -521,7 +537,8 @@ int main(int argc, char* argv[]) {
 
         if (command == "perceptron") {
 
-            run_perceptron(parse_perceptron_options(arguments), logger);
+            run_perceptron(
+                parse_perceptron_options(arguments), logger, executable_directory);
         }
         else {
             std::cerr << "Unknown command: " << command << '\n';
