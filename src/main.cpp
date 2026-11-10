@@ -263,7 +263,7 @@ int run_python_script(
     const std::filesystem::path& output) {
     // Paths are quoted so spaces in filenames work.
     const std::string command =
-        "py \"" + script.string() + "\" \"" + input.string() +
+        "python \"" + script.string() + "\" \"" + input.string() +
         "\" --output \"" + output.string() + "\"";
 
     return std::system(command.c_str());
