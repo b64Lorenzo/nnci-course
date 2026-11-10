@@ -25,6 +25,9 @@ struct PerceptronOptions {
     std::size_t p_min = 0;
     std::size_t p_max = 0;
     std::size_t p_step = 0;
+    bool p_min_explicit = false;
+    bool p_max_explicit = false;
+    bool p_step_explicit = false;
     std::uint64_t seed = 2026;
     double threshold = 0.0;
     std::filesystem::path output;
@@ -67,7 +70,7 @@ void print_usage() {
         << "  --threshold c     potential threshold (default: 0.0)\n"
         << "  --output FILE     CSV output path (default: results/capacity_N<N>.csv)\n"
         << "  --capacity        run capacity study and plot it (default: false)\n"
-        << "  --NCapacity       sweep N from A through B by S, plotting each result\n"
+        << "  --NCapacity START END STEP  sweep N and create one combined plot\n"
         << "  --strength        run strength convergence study and plot it (default: false)\n"
         << "  --patterns P      patterns for single-run or strength study (default: N)\n"
         << "  --help            show this help message\n";
@@ -79,6 +82,20 @@ void finalize_options(PerceptronOptions& options) {
         options.max_epochs == 0) {
         throw std::invalid_argument(
             "Dimensions, datasets, and maximum epochs must be positive");
+    }
+
+    // N sweeps need per-dimension defaults, so defer pattern-range validation.
+    if (options.n_start != 0) {
+        if ((options.p_min_explicit && options.p_min == 0) ||
+            (options.p_max_explicit && options.p_max == 0) ||
+            (options.p_step_explicit && options.p_step == 0)) {
+            throw std::invalid_argument("Explicit pattern values must be positive");
+        }
+        if (options.p_min_explicit && options.p_max_explicit &&
+            options.p_max < options.p_min) {
+            throw std::invalid_argument("Pattern range must be positive and ordered");
+        }
+        return;
     }
 
     if (options.patterns == 0)
@@ -175,12 +192,15 @@ PerceptronOptions parse_perceptron_options(
             }
             else if (option == "--p-min") {
                 options.p_min = parse_number<std::size_t>(value, option);
+                options.p_min_explicit = true;
             }
             else if (option == "--p-max") {
                 options.p_max = parse_number<std::size_t>(value, option);
+                options.p_max_explicit = true;
             }
             else if (option == "--p-step") {
                 options.p_step = parse_number<std::size_t>(value, option);
+                options.p_step_explicit = true;
             }
             else if (option == "--seed") {
                 options.seed = parse_number<std::uint64_t>(value, option);
@@ -386,15 +406,25 @@ void run_n_capacity(
         PerceptronOptions current = options;
         current.dimensions = dimensions;
 
-        // Use a fresh N-dependent P range for each dimension.
-        current.p_step = std::max<std::size_t>(1, dimensions / 10);
-        current.p_min = current.p_step;
+        // Keep explicit P bounds across the N sweep; otherwise derive defaults from N.
+        const auto default_step = std::max<std::size_t>(1, dimensions / 10);
+        current.p_step = options.p_step_explicit ? options.p_step : default_step;
+        current.p_min = options.p_min_explicit ? options.p_min : current.p_step;
 
         if (dimensions >
             std::numeric_limits<std::size_t>::max() / 3) {
             throw std::invalid_argument("Dimensions are too large");
         }
-        current.p_max = dimensions * 3;
+        current.p_max = options.p_max_explicit ? options.p_max : dimensions * 3;
+        if (current.p_min == 0 || current.p_step == 0 ||
+            current.p_max < current.p_min) {
+            throw std::invalid_argument(
+                "Pattern range must be positive and ordered for every swept dimension");
+        }
+        if ((current.p_max - current.p_min) / current.p_step >= 1'000'000) {
+            throw std::invalid_argument(
+                "Study is limited to 1000000 P values per run");
+        }
         current.output = std::filesystem::path("results") /
             ("capacity_N" + std::to_string(dimensions) + ".csv");
 

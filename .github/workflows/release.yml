@@ -83,17 +83,55 @@ jobs:
           Copy-Item "build/Release/scripts/plot_capacity.py" "$packageRoot/scripts/plot_capacity.py"
           Copy-Item "build/Release/scripts/plot_strength.py" "$packageRoot/scripts/plot_strength.py"
           Copy-Item "requirements-plot.txt" "$packageRoot/requirements-plot.txt"
+          New-Item -ItemType Directory -Force "$packageRoot/doc" | Out-Null
+          Copy-Item -Path "doc/*" -Destination "$packageRoot/doc" -Recurse
+          Copy-Item "LICENSE" "$packageRoot/LICENSE"
+          Copy-Item "THIRD_PARTY_NOTICES.md" "$packageRoot/THIRD_PARTY_NOTICES.md"
           @'
-          NNCI Windows x64
+          # NNCI Course Projects — Windows x64
 
-          Extract the entire package and keep the scripts folder beside nnci.exe.
-          Run nnci.exe from any working directory. Plotting requires Python 3 and
-          matplotlib. Install the plotting dependency with:
+          This ZIP contains the NNCI command-line application, plotting scripts, and detailed local documentation.
+
+          ## Quick start
+
+          Extract the full ZIP and keep nnci.exe, scripts/, doc/, and this README together. Plotting needs Python 3 and Matplotlib:
 
               py -3 -m pip install -r requirements-plot.txt
 
-          Example:
-              .\nnci.exe perceptron --strength --dimensions 20 --patterns 15 --datasets 50 --max-epochs 100
+          Examples:
+
+              nnci.exe --help
+              nnci.exe perceptron --capacity --dimensions 20 --datasets 50 --max-epochs 100 --p-min 15 --p-max 60 --p-step 5
+              nnci.exe perceptron --strength --dimensions 20 --patterns 15 --datasets 50 --max-epochs 100
+
+          ## Documentation
+
+          Start with [doc/README.md](doc/README.md), the documentation index. It links to the [user guide](doc/user-guide.md), [algorithm notes](doc/algorithm.md), [development guide](doc/development.md), and [troubleshooting](doc/troubleshooting.md). These detailed guides are included in the ZIP; links work after extraction.
+
+          Results and logs are written relative to the current working directory. The plotting scripts are found beside nnci.exe. See THIRD_PARTY_NOTICES.md for license scope. This release is CPU-only; CUDA is not available.
+          '@ | Set-Content "$packageRoot/README.md"
+          @'
+          NNCI Course Projects — Windows x64
+
+          Extract the complete ZIP and keep nnci.exe, scripts/, and doc/ together.
+          Plotting requires Python 3 and Matplotlib. From this folder, install it with:
+
+              py -3 -m pip install -r requirements-plot.txt
+
+          Quick start:
+              nnci.exe --help
+              nnci.exe perceptron --strength --dimensions 20 --patterns 15 --datasets 50 --max-epochs 100
+
+          Detailed documentation is included in doc/:
+              doc/README.md          documentation index
+              doc/user-guide.md     install, commands, options, and outputs
+              doc/algorithm.md      model and experiment definitions
+              doc/development.md    building, tests, and release packaging
+              doc/troubleshooting.md common problems
+
+          Start with README.md for examples and links. Results and logs are written
+          relative to the current working directory. See THIRD_PARTY_NOTICES.md for
+          license scope. The current implementation is CPU-only; CUDA is not available.
           '@ | Set-Content "$packageRoot/README.txt"
           Compress-Archive -Path "$packageRoot/*" -DestinationPath "dist/nnci-windows-x64.zip" -Force
 
@@ -103,8 +141,16 @@ jobs:
               -not (Test-Path "$check/scripts/plot_strength.py") -or
               -not (Test-Path "$check/scripts/plot_capacity.py") -or
               -not (Test-Path "$check/requirements-plot.txt") -or
-              -not (Test-Path "$check/README.txt")) {
-            throw "Windows package is missing a required executable, script, or dependency file"
+              -not (Test-Path "$check/README.md") -or
+              -not (Test-Path "$check/README.txt") -or
+              -not (Test-Path "$check/doc/README.md") -or
+              -not (Test-Path "$check/doc/user-guide.md") -or
+              -not (Test-Path "$check/doc/algorithm.md") -or
+              -not (Test-Path "$check/doc/development.md") -or
+              -not (Test-Path "$check/doc/troubleshooting.md") -or
+              -not (Test-Path "$check/LICENSE") -or
+              -not (Test-Path "$check/THIRD_PARTY_NOTICES.md")) {
+            throw "Windows package is missing a required executable, document, script, or dependency file"
           }
           $smoke = Join-Path $env:RUNNER_TEMP "nnci-package-smoke"
           New-Item -ItemType Directory -Force $smoke | Out-Null

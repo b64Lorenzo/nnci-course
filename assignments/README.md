@@ -18,20 +18,20 @@ cmake --build build --config Release
 The handout's baseline is `N = 20, 40`, `alpha = 0.75, 1.00, 1.25, ..., 3.00`, `nD = 50`, and `nmax = 100`. Use integer `P` ranges to match those alpha values:
 
 ```powershell
-.\build\Release\nnci.exe a1-study --dimensions 20 --datasets 50 --max-epochs 100 --p-min 15 --p-max 60 --p-step 5 --seed 2025 --output results/capacity_N20.csv
-.\build\Release\nnci.exe a1-study --dimensions 40 --datasets 50 --max-epochs 100 --p-min 30 --p-max 120 --p-step 10 --seed 2040 --output results/capacity_N40.csv
+.\build\Release\nnci.exe perceptron --capacity --dimensions 20 --datasets 50 --max-epochs 100 --p-min 15 --p-max 60 --p-step 5 --seed 2025 --output results/capacity_N20.csv
+.\build\Release\nnci.exe perceptron --capacity --dimensions 40 --datasets 50 --max-epochs 100 --p-min 30 --p-max 120 --p-step 10 --seed 2040 --output results/capacity_N40.csv
 ```
 
 Install Matplotlib once, then plot both results:
 
 ```text
-py -m pip install -r requirements-plot.txt
+py -3 -m pip install -r requirements-plot.txt
 py scripts/plot_capacity.py results/capacity_N20.csv results/capacity_N40.csv --output results/capacity.png
 ```
 
 ## Inputs
 
-`a1-study` accepts:
+`perceptron --capacity` accepts:
 
 | Option | Meaning | Default |
 |---|---|---:|
@@ -61,7 +61,7 @@ logs/
     └── run.log
 ```
 
-CSV columns are `N,P,alpha,nD,nmax,successes,Q_ls,seed`. Normal logs record command start/end and a summary for each `P`. Add `--debug` before `a1-study` to log each training run's epoch and update counts. Perceptron errors are logged with codes 10 (invalid dataset), 11 (invalid options), or 12 (numerical failure); invalid CLI arguments print to stderr. Logs are also written to stderr.
+CSV columns are `N,P,alpha,nD,nmax,successes,Q_ls,seed`. Normal logs record command start/end and a summary for each `P`. Add `--debug` before `perceptron --capacity` to log each training run's epoch and update counts. Perceptron errors are logged with codes 10 (invalid dataset), 11 (invalid options), or 12 (numerical failure); invalid CLI arguments print to stderr. Logs are also written to stderr.
 
 Raw feature vectors, labels, learned weight vectors, and per-example stabilities are **not** saved. The CSV stores parameters and aggregate success counts/rates only. `results/` and `logs/` are ignored by Git.
 

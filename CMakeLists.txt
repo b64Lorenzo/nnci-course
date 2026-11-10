@@ -145,6 +145,10 @@ if(BUILD_TESTING)
         set_tests_properties(plot_capacity_unit PROPERTIES
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         )
+        add_test(NAME perceptron_ncapacity_custom_pattern_range
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/test_ncapacity_cli.py"
+                    "$<TARGET_FILE:nnci>"
+        )
     endif()
 endif()
 
