@@ -88,50 +88,40 @@ jobs:
           Copy-Item "LICENSE" "$packageRoot/LICENSE"
           Copy-Item "THIRD_PARTY_NOTICES.md" "$packageRoot/THIRD_PARTY_NOTICES.md"
           @'
-          # NNCI Course Projects — Windows x64
+          # NNCI Course Project — Windows x64
 
-          This ZIP contains the NNCI command-line application, plotting scripts, and detailed local documentation.
+          This ZIP contains the command-line application and plotting scripts.
 
-          ## Quick start
-
-          Extract the full ZIP and keep nnci.exe, scripts/, doc/, and this README together. Plotting needs Python 3 and Matplotlib:
+          Extract the full ZIP and keep `nnci.exe` and `scripts/` together. Plotting needs Python 3 and Matplotlib:
 
               py -3 -m pip install -r requirements-plot.txt
 
           Examples:
 
               nnci.exe --help
-              nnci.exe perceptron --capacity --dimensions 20 --datasets 50 --max-epochs 100 --p-min 15 --p-max 60 --p-step 5
-              nnci.exe perceptron --strength --dimensions 20 --patterns 15 --datasets 50 --max-epochs 100
+              nnci.exe perceptron --capacity --dimensions 20 --p-min 15 --p-max 60 --p-step 5
+              nnci.exe perceptron --strength --dimensions 20 --patterns 15
 
-          ## Documentation
+          ## Docs
 
-          Start with [doc/README.md](doc/README.md), the documentation index. It links to the [user guide](doc/user-guide.md), [algorithm notes](doc/algorithm.md), [development guide](doc/development.md), and [troubleshooting](doc/troubleshooting.md). These detailed guides are included in the ZIP; links work after extraction.
+          See [doc/README.md](doc/README.md) for the algorithm and build notes.
 
-          Results and logs are written relative to the current working directory. The plotting scripts are found beside nnci.exe. See THIRD_PARTY_NOTICES.md for license scope. This release is CPU-only; CUDA is not available.
+          Results and logs are written relative to the current working directory. Plotting scripts are found beside nnci.exe.
           '@ | Set-Content "$packageRoot/README.md"
           @'
-          NNCI Course Projects — Windows x64
+          NNCI Course Project — Windows x64
 
-          Extract the complete ZIP and keep nnci.exe, scripts/, and doc/ together.
+          Extract the full ZIP and keep scripts/ beside nnci.exe.
           Plotting requires Python 3 and Matplotlib. From this folder, install it with:
 
               py -3 -m pip install -r requirements-plot.txt
 
           Quick start:
               nnci.exe --help
-              nnci.exe perceptron --strength --dimensions 20 --patterns 15 --datasets 50 --max-epochs 100
+              nnci.exe perceptron --strength --dimensions 20 --patterns 15
 
-          Detailed documentation is included in doc/:
-              doc/README.md          documentation index
-              doc/user-guide.md     install, commands, options, and outputs
-              doc/algorithm.md      model and experiment definitions
-              doc/development.md    building, tests, and release packaging
-              doc/troubleshooting.md common problems
-
-          Start with README.md for examples and links. Results and logs are written
-          relative to the current working directory. See THIRD_PARTY_NOTICES.md for
-          license scope. The current implementation is CPU-only; CUDA is not available.
+          Docs: doc/README.md, doc/algorithm.md, doc/development.md
+          Results and logs are written relative to the current working directory.
           '@ | Set-Content "$packageRoot/README.txt"
           Compress-Archive -Path "$packageRoot/*" -DestinationPath "dist/nnci-windows-x64.zip" -Force
 
@@ -144,10 +134,8 @@ jobs:
               -not (Test-Path "$check/README.md") -or
               -not (Test-Path "$check/README.txt") -or
               -not (Test-Path "$check/doc/README.md") -or
-              -not (Test-Path "$check/doc/user-guide.md") -or
               -not (Test-Path "$check/doc/algorithm.md") -or
               -not (Test-Path "$check/doc/development.md") -or
-              -not (Test-Path "$check/doc/troubleshooting.md") -or
               -not (Test-Path "$check/LICENSE") -or
               -not (Test-Path "$check/THIRD_PARTY_NOTICES.md")) {
             throw "Windows package is missing a required executable, document, script, or dependency file"

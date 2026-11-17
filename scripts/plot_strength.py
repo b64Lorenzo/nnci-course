@@ -51,6 +51,7 @@ def plot_strength(csv_path: str | Path, output_path: str | Path) -> None:
     figure, axis = plt.subplots(figsize=(8, 5))
     axis.hist(values, bins=bins, edgecolor="black", align="mid")
     axis.set_xticks(range(largest + 1))
+    axis.tick_params(axis="x", labelrotation=45)
     axis.set_xlabel("Embedding strength x^μ (updates for pattern μ)")
     axis.set_ylabel("Frequency among patterns in converged runs")
     axis.set_title("Embedding-strength distribution in successful runs")

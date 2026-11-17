@@ -19,10 +19,6 @@ inline double dot_product(const Vector& left, const Vector& right) {
     return result;
 }
 
-inline double length(const Vector& values) {
-    return std::sqrt(dot_product(values, values));
-}
-
 inline std::size_t validate_labeled_examples(const std::vector<LabeledExample>& examples) {
     if (examples.empty() || examples.front().input.empty()) {
         throw std::invalid_argument("Training data must not be empty");

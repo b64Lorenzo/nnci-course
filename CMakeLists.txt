@@ -22,7 +22,14 @@ add_library(nnci_perceptron
 target_include_directories(nnci_perceptron PUBLIC include)
 target_link_libraries(nnci_perceptron PUBLIC nnci_logging)
 
-add_executable(nnci src/main.cpp)
+add_executable(nnci
+    src/main.cpp
+    src/app/cli.cpp
+    src/app/perceptron_options.cpp
+    src/app/perceptron_command.cpp
+    src/app/study_output.cpp
+    src/app/plot_runner.cpp
+)
 target_link_libraries(nnci PRIVATE nnci_logging nnci_perceptron)
 add_custom_command(TARGET nnci POST_BUILD
     COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_FILE_DIR:nnci>/scripts"
@@ -69,18 +76,29 @@ if(BUILD_TESTING)
     add_executable(nnci_perceptron_tests tests/assignment_tests.cpp)
     target_link_libraries(nnci_perceptron_tests PRIVATE nnci_perceptron)
 
+    add_executable(nnci_cli_options_tests
+        tests/cli_options_tests.cpp
+        src/app/perceptron_options.cpp
+    )
+    target_include_directories(nnci_cli_options_tests PRIVATE src/app)
+
     if(MSVC)
         target_compile_options(nnci_perceptron_tests PRIVATE /W4 /permissive-)
+        target_compile_options(nnci_cli_options_tests PRIVATE /W4 /permissive-)
     else()
         target_compile_options(nnci_perceptron_tests PRIVATE -Wall -Wextra -Wpedantic)
+        target_compile_options(nnci_cli_options_tests PRIVATE -Wall -Wextra -Wpedantic)
     endif()
-
-
     add_test(NAME nnci_perceptron_unit COMMAND nnci_perceptron_tests)
+    add_test(NAME nnci_cli_options COMMAND nnci_cli_options_tests)
 
     add_test(NAME nnci_cli_version COMMAND nnci --version)
     set_tests_properties(nnci_cli_version PROPERTIES
         PASS_REGULAR_EXPRESSION "nnci ${PROJECT_VERSION}"
+    )
+    add_test(NAME nnci_cli_help COMMAND nnci --help)
+    set_tests_properties(nnci_cli_help PROPERTIES
+        PASS_REGULAR_EXPRESSION "Usage:"
     )
     if(WIN32)
         find_program(POWERSHELL_EXECUTABLE NAMES pwsh powershell REQUIRED)

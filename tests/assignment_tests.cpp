@@ -1,15 +1,8 @@
 #include "nnci/assignments.hpp"
-#include "nnci/logging.hpp"
 #include "../src/assignment_utils.hpp"
 
-#include <chrono>
-#include <filesystem>
-#include <fstream>
 #include <iostream>
-#include <iterator>
-#include <limits>
 #include <stdexcept>
-#include <string>
 #include <vector>
 
 namespace {
@@ -18,11 +11,6 @@ void require(bool condition, const char* message) {
     if (!condition) {
         throw std::runtime_error(message);
     }
-}
-
-std::string read_file(const std::filesystem::path& path) {
-    std::ifstream input(path, std::ios::binary);
-    return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
 }
 
 void test_random_binary_data_is_seeded() {
@@ -37,13 +25,6 @@ void test_random_binary_data_is_seeded() {
         require(first[i].label == -1 || first[i].label == 1,
                 "Labels must be binary {-1, +1}");
     }
-}
-
-void test_vector_length() {
-    require(nnci::detail::length({3.0, 4.0}) == 5.0,
-            "Vector length must be the Euclidean norm");
-    require(nnci::detail::length({}) == 0.0,
-            "The empty vector must have zero length");
 }
 
 void test_dot_product() {
@@ -97,7 +78,6 @@ void test_embedding_strengths_are_pattern_indexed() {
 int main() {
     try {
         test_random_binary_data_is_seeded();
-        test_vector_length();
         test_dot_product();
         test_perceptron_updates_sequentially_and_stops_when_solved();
         test_embedding_strengths_are_pattern_indexed();
