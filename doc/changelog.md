@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.1
+
+### Added
+- Opt-in `--parallelize` for bounded CPU concurrency across independent `--capacity` and `--NCapacity` work; CPU execution remains sequential by default.
+- CUDA batching across independent P/N/trial datasets, bounded to 1024 datasets and 64 MiB of device buffers, while preserving result order and CPU parity.
+
+### Fixed
+- Prevent floating-point roundoff at empirical rates 0 and 1 from producing negative plot error-bar lengths.
+
+### Tests
+- Cover CPU-parallel output parity, mixed-shape CUDA batches and chunk limits, and extreme-rate capacity plotting.
+
 ## 0.3.0
 
 ### Added
