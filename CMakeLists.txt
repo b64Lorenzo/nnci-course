@@ -91,6 +91,12 @@ if(BUILD_TESTING)
     endif()
     add_test(NAME nnci_perceptron_unit COMMAND nnci_perceptron_tests)
     add_test(NAME nnci_cli_options COMMAND nnci_cli_options_tests)
+    add_test(NAME perceptron_theoretical_validation
+        COMMAND nnci perceptron --validation
+    )
+    set_tests_properties(perceptron_theoretical_validation PROPERTIES
+        PASS_REGULAR_EXPRESSION "PASS theoretical validation"
+    )
 
     add_test(NAME nnci_cli_version COMMAND nnci --version)
     set_tests_properties(nnci_cli_version PROPERTIES
@@ -98,7 +104,7 @@ if(BUILD_TESTING)
     )
     add_test(NAME nnci_cli_help COMMAND nnci --help)
     set_tests_properties(nnci_cli_help PROPERTIES
-        PASS_REGULAR_EXPRESSION "Usage:"
+        PASS_REGULAR_EXPRESSION "--validation"
     )
     if(WIN32)
         find_program(POWERSHELL_EXECUTABLE NAMES pwsh powershell REQUIRED)

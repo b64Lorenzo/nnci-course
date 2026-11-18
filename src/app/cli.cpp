@@ -32,6 +32,7 @@ void print_usage() {
         << "  --capacity        run capacity study and plot it (default: false)\n"
         << "  --NCapacity START END STEP  sweep N and create one combined plot\n"
         << "  --strength        run strength convergence study and plot it (default: false)\n"
+        << "  --validation      run deterministic separable and non-separable checks\n"
         << "  --patterns P      patterns for single-run or strength study (default: N)\n"
         << "  --help            show this help message\n";
 }

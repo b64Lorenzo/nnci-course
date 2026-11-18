@@ -15,7 +15,11 @@ ctest --test-dir build -C Release --output-on-failure
 
 ## Run
 
-Use `nnci.exe --help` for all options.
+Use `nnci.exe --help` for all options. Run this from the build output directory to check the fixed separable and non-separable cases:
+
+```powershell
+nnci.exe perceptron --validation
+```
 
 ```powershell
 # One training run

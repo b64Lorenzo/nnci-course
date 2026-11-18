@@ -99,6 +99,7 @@ jobs:
           Examples:
 
               nnci.exe --help
+              nnci.exe perceptron --validation
               nnci.exe perceptron --capacity --dimensions 20 --p-min 15 --p-max 60 --p-step 5
               nnci.exe perceptron --strength --dimensions 20 --patterns 15
 
@@ -118,6 +119,7 @@ jobs:
 
           Quick start:
               nnci.exe --help
+              nnci.exe perceptron --validation
               nnci.exe perceptron --strength --dimensions 20 --patterns 15
 
           Docs: doc/README.md, doc/algorithm.md, doc/development.md
@@ -143,6 +145,10 @@ jobs:
           $smoke = Join-Path $env:RUNNER_TEMP "nnci-package-smoke"
           New-Item -ItemType Directory -Force $smoke | Out-Null
           Push-Location $smoke
+          & "$check/nnci.exe" perceptron --validation
+          if ($LASTEXITCODE -ne 0) {
+            throw "Extracted package validation failed"
+          }
           & "$check/nnci.exe" perceptron --strength --dimensions 2 --patterns 2 --datasets 10 --max-epochs 100 --seed 4
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path "results/strength_histogram.png")) {
             throw "Extracted package could not plot from an unrelated working directory"

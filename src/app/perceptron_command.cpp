@@ -162,12 +162,58 @@ void run_strength(
               << "\nSaved strength histogram to " << png << '\n';
 }
 
+void run_validation(nnci::Logger& logger) {
+    const std::vector<nnci::LabeledExample> separable{
+        {{1.0, 0.0}, 1}, {{0.0, 1.0}, -1}
+    };
+    const auto separable_result = nnci::train_rosenblatt_perceptron(
+        separable, 1, 0.0, &logger);
+    if (!separable_result.converged ||
+        separable_result.epochs != 1 ||
+        separable_result.updates != 2 ||
+        separable_result.weights != nnci::Vector{0.5, -0.5} ||
+        separable_result.strengths != nnci::Vector{1.0, 1.0}) {
+        throw std::runtime_error("Separable theoretical validation failed");
+    }
+
+    std::cout << "Separable case (N=2, P=2, c=0):\n"
+              << "  w=(" << separable_result.weights[0] << ", "
+              << separable_result.weights[1] << ")\n"
+              << "  x=(" << separable_result.strengths[0] << ", "
+              << separable_result.strengths[1] << ")\n"
+              << "  U=" << separable_result.updates << '\n'
+              << "  converged=true, epochs=" << separable_result.epochs << '\n'
+              << "  PASS\n";
+
+    const std::vector<nnci::LabeledExample> non_separable{
+        {{1.0, 0.0}, 1}, {{1.0, 0.0}, -1}
+    };
+    const auto non_separable_result = nnci::train_rosenblatt_perceptron(
+        non_separable, 2, 0.0, &logger);
+    if (non_separable_result.converged ||
+        non_separable_result.epochs != 2 ||
+        non_separable_result.updates != 4) {
+        throw std::runtime_error("Non-separable theoretical validation failed");
+    }
+
+    std::cout << "Non-separable case (opposite labels for input (1,0)):\n"
+              << "  converged=false after " << non_separable_result.epochs
+              << " epochs (expected)\n"
+              << "  PASS\n"
+              << "PASS theoretical validation\n";
+}
+
 }  // namespace
 
 void run_perceptron(
     const PerceptronOptions& options,
     nnci::Logger& logger,
     const std::filesystem::path& executable_directory) {
+    if (options.validation) {
+        run_validation(logger);
+        return;
+    }
+
     if (options.n_start != 0) {
         run_n_capacity(options, logger, executable_directory);
         return;

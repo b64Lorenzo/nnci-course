@@ -93,7 +93,9 @@ PerceptronOptions parse_perceptron_options(
     for (std::size_t i = 0; i < arguments.size(); ++i) {
         const auto option = arguments[i];
 
-        if (option == "--capacity") {
+        if (option == "--validation") {
+            options.validation = true;
+        } else if (option == "--capacity") {
             options.capacity = true;
         } else if (option == "--strength") {
             options.strength = true;
@@ -145,6 +147,13 @@ PerceptronOptions parse_perceptron_options(
                     "Unknown perceptron option: " + std::string(option));
             }
         }
+    }
+
+    if (options.validation) {
+        if (arguments.size() != 1) {
+            throw std::invalid_argument("Use --validation by itself");
+        }
+        return options;
     }
 
     if (saw_n_capacity &&

@@ -24,6 +24,7 @@ struct PerceptronOptions {
 
     bool capacity = false;
     bool strength = false;
+    bool validation = false;
     std::size_t patterns = 0;
 
     // All zero means --NCapacity was not supplied.
