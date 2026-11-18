@@ -1,9 +1,12 @@
 #include "study_output.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <iomanip>
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 namespace nnci::app {
 namespace {
@@ -13,6 +16,63 @@ void ensure_parent_directory(const std::filesystem::path& output) {
     if (!parent.empty()) {
         std::filesystem::create_directories(parent);
     }
+}
+
+long double binomial_lower_tail(std::size_t trials, std::size_t cutoff) {
+    if (cutoff >= trials) {
+        return 1.0L;
+    }
+
+    // Reflect the upper tail so the recurrence sums the smaller side.
+    const bool complement = cutoff > trials / 2;
+    const std::size_t lower_cutoff = complement ? trials - cutoff - 1 : cutoff;
+    const long double n = static_cast<long double>(trials);
+    const long double k = static_cast<long double>(lower_cutoff);
+    long double term = std::exp(
+        std::lgamma(n + 1.0L) - std::lgamma(k + 1.0L)
+        - std::lgamma(n - k + 1.0L) - n * std::log(2.0L));
+    long double sum = term;
+    for (std::size_t i = lower_cutoff; i > 0; --i) {
+        term *= static_cast<long double>(i)
+            / static_cast<long double>(trials - i + 1);
+        sum += term;
+    }
+
+    const long double probability = complement ? 1.0L - sum : sum;
+    return std::clamp(probability, 0.0L, 1.0L);
+}
+
+double cover_probability(std::size_t dimensions, std::size_t patterns) {
+    if (patterns <= dimensions) {
+        return 1.0;
+    }
+    return static_cast<double>(binomial_lower_tail(patterns - 1, dimensions - 1));
+}
+
+double normal_approximation(std::size_t dimensions, std::size_t patterns) {
+    if (patterns == 1) {
+        return 1.0;
+    }
+    const double z = (2.0 * static_cast<double>(dimensions)
+                      - static_cast<double>(patterns))
+        / std::sqrt(static_cast<double>(patterns - 1));
+    return 0.5 * std::erfc(-z / std::sqrt(2.0));
+}
+
+std::pair<double, double> wilson_interval(
+    std::size_t successes, std::size_t datasets) {
+    if (datasets == 0 || successes > datasets) {
+        throw std::invalid_argument("invalid capacity success count");
+    }
+    constexpr double z = 1.96;
+    const double n = static_cast<double>(datasets);
+    const double rate = static_cast<double>(successes) / n;
+    const double denominator = 1.0 + z * z / n;
+    const double center = (rate + z * z / (2.0 * n)) / denominator;
+    const double margin = z * std::sqrt(
+        rate * (1.0 - rate) / n + z * z / (4.0 * n * n)) / denominator;
+    return {std::clamp(center - margin, 0.0, 1.0),
+            std::clamp(center + margin, 0.0, 1.0)};
 }
 
 }  // namespace
@@ -31,11 +91,20 @@ void write_capacity_csv(
             "Could not open output file: " + output.string());
     }
 
-    file << "N,P,alpha,nD,nmax,successes,Q_ls,seed\n" << std::setprecision(17);
+    file << "N,P,alpha,nD,nmax,successes,Q_ls,Q_ls_variance_est,P_ls_exact,"
+            "P_ls_normal,Q_ls_wilson95_low,Q_ls_wilson95_high,seed\n"
+         << std::setprecision(17);
     for (const auto& point : points) {
+        const auto interval = wilson_interval(point.successes, point.datasets);
+        const double n = static_cast<double>(point.datasets);
+        const double rate = static_cast<double>(point.successes) / n;
+        const double variance = rate * (1.0 - rate) / n;
         file << dimensions << ',' << point.examples << ',' << point.alpha << ','
              << point.datasets << ',' << max_epochs << ',' << point.successes << ','
-             << point.success_rate << ',' << seed << '\n';
+             << rate << ',' << variance << ','
+             << cover_probability(dimensions, point.examples) << ','
+             << normal_approximation(dimensions, point.examples) << ','
+             << interval.first << ',' << interval.second << ',' << seed << '\n';
     }
     if (!file) {
         throw std::runtime_error(

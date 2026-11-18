@@ -1,4 +1,5 @@
 import csv
+from math import comb, erfc, sqrt
 import subprocess
 import sys
 import tempfile
@@ -49,6 +50,34 @@ class NCapacityPatternRangeTest(unittest.TestCase):
             patterns_by_dimension.setdefault(int(row["N"]), []).append(int(row["P"]))
 
         self.assertEqual(patterns_by_dimension, {2: [3, 5], 4: [3, 5]})
+        required = {
+            "Q_ls_variance_est", "P_ls_exact", "P_ls_normal",
+            "Q_ls_wilson95_low", "Q_ls_wilson95_high",
+        }
+        self.assertTrue(required.issubset(rows[0]))
+        for row in rows:
+            dimensions, patterns = int(row["N"]), int(row["P"])
+            datasets = int(row["nD"])
+            successes = int(row["successes"])
+            rate = successes / datasets
+            variance = rate * (1.0 - rate) / datasets
+            self.assertAlmostEqual(float(row["Q_ls_variance_est"]), variance)
+
+            z = 1.96
+            denominator = 1.0 + z * z / datasets
+            center = (rate + z * z / (2.0 * datasets)) / denominator
+            margin = z * sqrt(
+                rate * (1.0 - rate) / datasets + z * z / (4.0 * datasets**2)
+            ) / denominator
+            self.assertAlmostEqual(float(row["Q_ls_wilson95_low"]), center - margin)
+            self.assertAlmostEqual(float(row["Q_ls_wilson95_high"]), center + margin)
+
+            expected = sum(comb(patterns - 1, k) for k in range(min(dimensions, patterns)))
+            self.assertAlmostEqual(float(row["P_ls_exact"]), expected / 2 ** (patterns - 1))
+            approximate = 1.0 if patterns == 1 else 0.5 * erfc(
+                -(2 * dimensions - patterns) / sqrt(patterns - 1) / sqrt(2.0)
+            )
+            self.assertAlmostEqual(float(row["P_ls_normal"]), approximate)
 
     def test_default_p_max_is_derived_from_each_swept_dimension(self):
         executable = Path(sys.argv[1]).resolve()
