@@ -113,7 +113,9 @@ PerceptronOptions parse_perceptron_options(
     for (std::size_t i = 0; i < arguments.size(); ++i) {
         const auto option = arguments[i];
 
-        if (option == "--validation") {
+        if (option == "--cuda") {
+            options.cuda = true;
+        } else if (option == "--validation") {
             options.validation = true;
         } else if (option == "--capacity") {
             options.capacity = true;
@@ -171,8 +173,10 @@ PerceptronOptions parse_perceptron_options(
     }
 
     if (options.validation) {
-        if (arguments.size() != 1) {
-            throw std::invalid_argument("Use --validation by itself");
+        if (arguments != std::vector<std::string_view>{"--validation"} &&
+            arguments != std::vector<std::string_view>{"--validation", "--cuda"} &&
+            arguments != std::vector<std::string_view>{"--cuda", "--validation"}) {
+            throw std::invalid_argument("Use --validation by itself or with --cuda");
         }
         return options;
     }

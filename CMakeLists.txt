@@ -8,6 +8,19 @@ endif()
 
 project(nnci_course VERSION "${NNCI_VERSION}" LANGUAGES CXX)
 
+option(NNCI_ENABLE_CUDA "Build the opt-in CUDA perceptron backend" OFF)
+if(NNCI_ENABLE_CUDA)
+    if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES AND "$ENV{CUDAARCHS}" STREQUAL "")
+        set(CMAKE_CUDA_ARCHITECTURES 89 CACHE STRING "CUDA architectures (real code and PTX)")
+    endif()
+    set(CMAKE_CUDA_RUNTIME_LIBRARY Static)
+    enable_language(CUDA)
+    find_package(CUDAToolkit REQUIRED)
+    set(CMAKE_CUDA_STANDARD 20)
+    set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+    set(CMAKE_CUDA_EXTENSIONS OFF)
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -21,6 +34,14 @@ add_library(nnci_perceptron
 )
 target_include_directories(nnci_perceptron PUBLIC include)
 target_link_libraries(nnci_perceptron PUBLIC nnci_logging)
+if(NNCI_ENABLE_CUDA)
+    target_sources(nnci_perceptron PRIVATE src/perceptron_cuda.cu)
+    set_property(TARGET nnci_perceptron PROPERTY CUDA_RUNTIME_LIBRARY Static)
+    target_link_libraries(nnci_perceptron PRIVATE CUDA::cudart_static)
+    target_compile_options(nnci_perceptron PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--fmad=false>)
+else()
+    target_sources(nnci_perceptron PRIVATE src/perceptron_cuda_stub.cpp)
+endif()
 
 add_executable(nnci
     src/main.cpp
@@ -63,16 +84,27 @@ endif()
 
 if(MSVC)
     target_compile_options(nnci_logging PRIVATE /W4 /permissive-)
-    target_compile_options(nnci_perceptron PRIVATE /W4 /permissive-)
+    target_compile_options(nnci_perceptron PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:/W4;/permissive->")
     target_compile_options(nnci PRIVATE /W4 /permissive-)
 else()
     target_compile_options(nnci_logging PRIVATE -Wall -Wextra -Wpedantic)
-    target_compile_options(nnci_perceptron PRIVATE -Wall -Wextra -Wpedantic)
+    target_compile_options(nnci_perceptron PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:-Wall;-Wextra;-Wpedantic;-ffp-contract=off>")
     target_compile_options(nnci PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
 include(CTest)
 if(BUILD_TESTING)
+    if(NNCI_ENABLE_CUDA)
+        add_executable(nnci_cuda_tests tests/cuda_tests.cpp)
+        target_link_libraries(nnci_cuda_tests PRIVATE nnci_perceptron)
+        add_test(NAME nnci_cuda_differential COMMAND nnci_cuda_tests)
+        set_tests_properties(nnci_cuda_differential PROPERTIES LABELS "cuda;gpu" TIMEOUT 90)
+    else()
+        add_executable(nnci_cuda_unavailable_tests tests/cuda_unavailable_tests.cpp)
+        target_link_libraries(nnci_cuda_unavailable_tests PRIVATE nnci_perceptron)
+        add_test(NAME nnci_cuda_unavailable COMMAND nnci_cuda_unavailable_tests)
+    endif()
+
     add_executable(nnci_perceptron_tests tests/assignment_tests.cpp)
     target_link_libraries(nnci_perceptron_tests PRIVATE nnci_perceptron)
 
@@ -162,6 +194,14 @@ if(BUILD_TESTING)
 
     find_package(Python3 COMPONENTS Interpreter QUIET)
     if(Python3_Interpreter_FOUND)
+        add_test(NAME perceptron_cuda_cli
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/test_cuda_cli.py"
+                    "$<TARGET_FILE:nnci>" "$<IF:$<BOOL:${NNCI_ENABLE_CUDA}>,on,off>"
+        )
+        set_tests_properties(perceptron_cuda_cli PROPERTIES TIMEOUT 180 LABELS cuda)
+        if(NNCI_ENABLE_CUDA)
+            set_tests_properties(perceptron_cuda_cli PROPERTIES LABELS "cuda;gpu")
+        endif()
         add_test(NAME plot_capacity_unit
             COMMAND "${Python3_EXECUTABLE}" -m unittest discover
                     -s "${CMAKE_SOURCE_DIR}/tests" -p test_plot_capacity.py

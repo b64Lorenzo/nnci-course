@@ -55,7 +55,7 @@ struct CapacityPoint {
 
 [[nodiscard]] PerceptronResult train_rosenblatt_perceptron(
     const std::vector<LabeledExample>& examples, std::size_t max_epochs, double threshold,
-    Logger* logger = nullptr);
+    Logger* logger = nullptr, bool cuda = false);
 
 [[nodiscard]] std::vector<CapacityPoint> estimate_perceptron_capacity(
     std::size_t dimensions,
@@ -64,7 +64,7 @@ struct CapacityPoint {
     std::size_t max_epochs,
     std::uint64_t seed,
     double threshold,
-    Logger* logger = nullptr);
+    Logger* logger = nullptr, bool cuda = false);
 
 // Returns one embedding-strength vector per converged trial.
 // Each vector has one x^mu value per training pattern.
@@ -75,6 +75,6 @@ struct CapacityPoint {
     std::size_t max_epochs,
     std::uint64_t seed,
     double threshold,
-    Logger* logger = nullptr);
+    Logger* logger = nullptr, bool cuda = false);
 
 }  // namespace nnci

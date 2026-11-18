@@ -2,6 +2,7 @@
 #include "../src/assignment_utils.hpp"
 
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <vector>
 
@@ -73,6 +74,19 @@ void test_embedding_strengths_are_pattern_indexed() {
             "Each update must increment the strength of the pattern that caused it");
 }
 
+void test_non_finite_threshold_is_an_invalid_option() {
+    for (const double threshold : {std::numeric_limits<double>::quiet_NaN(),
+                                   std::numeric_limits<double>::infinity()}) {
+        bool rejected = false;
+        try {
+            (void)nnci::train_rosenblatt_perceptron({{{1.0}, 1}}, 1, threshold);
+        } catch (const nnci::PerceptronError& error) {
+            rejected = error.code() == nnci::PerceptronErrorCode::InvalidOptions;
+        }
+        require(rejected, "Non-finite thresholds must be InvalidOptions (11), not convergence");
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -81,6 +95,7 @@ int main() {
         test_dot_product();
         test_perceptron_updates_sequentially_and_stops_when_solved();
         test_embedding_strengths_are_pattern_indexed();
+        test_non_finite_threshold_is_an_invalid_option();
         std::cout << "PASS Rosenblatt perceptron tests\n";
         return 0;
     } catch (const std::exception& error) {

@@ -1,5 +1,6 @@
 #include "nnci/assignments.hpp"
 #include "nnci/logging.hpp"
+#include "perceptron_backend.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -9,6 +10,38 @@
 #include <utility>
 
 namespace nnci {
+namespace {
+
+template <typename Consumer>
+void run_trials(
+    std::size_t dimensions, std::size_t patterns, std::size_t trials,
+    std::size_t max_epochs, double threshold, std::mt19937_64& random,
+    Logger* logger, bool cuda, Consumer consume) {
+    if (!cuda) {
+        for (std::size_t trial = 0; trial < trials; ++trial) {
+            const auto examples = make_random_binary_data(patterns, dimensions, random());
+            consume(trial, train_rosenblatt_perceptron(examples, max_epochs, threshold, logger));
+        }
+        return;
+    }
+
+    const auto batch_limit = detail::perceptron_cuda_batch_size(patterns, dimensions);
+    for (std::size_t first = 0; first < trials;) {
+        const auto count = std::min(batch_limit, trials - first);
+        std::vector<detail::PerceptronDataset> batch;
+        batch.reserve(count);
+        for (std::size_t i = 0; i < count; ++i) {
+            batch.push_back(make_random_binary_data(patterns, dimensions, random()));
+        }
+        const auto results = detail::train_perceptron_cuda(batch, max_epochs, threshold, logger);
+        for (std::size_t i = 0; i < count; ++i) {
+            consume(first + i, results[i]);
+        }
+        first += count;
+    }
+}
+
+}  // namespace
 
 std::vector<LabeledExample> make_random_binary_data(
     std::size_t count, std::size_t dimensions, std::uint64_t seed) {
@@ -39,7 +72,8 @@ std::vector<Vector> collect_converged_strengths(
     std::size_t max_epochs,
     std::uint64_t seed,
     double threshold,
-    Logger* logger) {
+    Logger* logger,
+    bool cuda) {
     if (dimensions == 0 || patterns == 0 || trials == 0 || max_epochs == 0) {
         throw std::invalid_argument(
             "Dimension, patterns, trials, and epochs must be positive");
@@ -49,14 +83,12 @@ std::vector<Vector> collect_converged_strengths(
     std::vector<Vector> strengths;
     strengths.reserve(trials);
 
-    for (std::size_t trial = 0; trial < trials; ++trial) {
-        const auto examples = make_random_binary_data(patterns, dimensions, random());
-        const auto result = train_rosenblatt_perceptron(
-            examples, max_epochs, threshold, logger);
-        if (result.converged) {
-            strengths.push_back(result.strengths);
-        }
-    }
+    run_trials(dimensions, patterns, trials, max_epochs, threshold, random, logger, cuda,
+        [&](std::size_t, const PerceptronResult& result) {
+            if (result.converged) {
+                strengths.push_back(result.strengths);
+            }
+        });
     return strengths;
 }
 
@@ -67,7 +99,8 @@ std::vector<CapacityPoint> estimate_perceptron_capacity(
     std::size_t max_epochs,
     std::uint64_t seed,
     double threshold,
-    Logger* logger) {
+    Logger* logger,
+    bool cuda) {
     if (dimensions == 0 || alphas.empty() ||
         datasets_per_point == 0 || max_epochs == 0) {
         throw std::invalid_argument(
@@ -105,10 +138,9 @@ std::vector<CapacityPoint> estimate_perceptron_capacity(
         }
 
         std::size_t successes = 0;
-        for (std::size_t trial = 0; trial < datasets_per_point; ++trial) {
-            const auto examples = make_random_binary_data(patterns, dimensions, random());
-            if (train_rosenblatt_perceptron(
-                    examples, max_epochs, threshold, logger).converged) {
+        run_trials(dimensions, patterns, datasets_per_point, max_epochs, threshold,
+            random, logger, cuda, [&](std::size_t trial, const PerceptronResult& trained) {
+            if (trained.converged) {
                 ++successes;
             }
 
@@ -119,7 +151,7 @@ std::vector<CapacityPoint> estimate_perceptron_capacity(
                     "; trial=" + std::to_string(trial + 1) +
                     "; successes=" + std::to_string(successes));
             }
-        }
+        });
 
         const double success_rate =
             static_cast<double>(successes) / static_cast<double>(datasets_per_point);

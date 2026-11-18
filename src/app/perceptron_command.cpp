@@ -49,7 +49,7 @@ void run_capacity_csv(
         options.max_epochs,
         options.seed,
         options.threshold,
-        &logger);
+        &logger, options.cuda);
 
     write_capacity_csv(
         options.output, options.dimensions, options.max_epochs, options.seed, points);
@@ -143,7 +143,7 @@ void run_strength(
         options.max_epochs,
         options.seed,
         options.threshold,
-        &logger);
+        &logger, options.cuda);
     if (strengths.empty()) {
         throw std::runtime_error(
             "No datasets converged; there are no strength values to plot");
@@ -163,12 +163,12 @@ void run_strength(
               << "\nSaved strength histogram to " << png << '\n';
 }
 
-void run_validation(nnci::Logger& logger) {
+void run_validation(nnci::Logger& logger, bool cuda) {
     const std::vector<nnci::LabeledExample> separable{
         {{1.0, 0.0}, 1}, {{0.0, 1.0}, -1}
     };
     const auto separable_result = nnci::train_rosenblatt_perceptron(
-        separable, 1, 0.0, &logger);
+        separable, 1, 0.0, &logger, cuda);
     if (!separable_result.converged ||
         separable_result.epochs != 1 ||
         separable_result.updates != 2 ||
@@ -190,7 +190,7 @@ void run_validation(nnci::Logger& logger) {
         {{1.0, 0.0}, 1}, {{1.0, 0.0}, -1}
     };
     const auto non_separable_result = nnci::train_rosenblatt_perceptron(
-        non_separable, 2, 0.0, &logger);
+        non_separable, 2, 0.0, &logger, cuda);
     if (non_separable_result.converged ||
         non_separable_result.epochs != 2 ||
         non_separable_result.updates != 4) {
@@ -211,7 +211,7 @@ void run_perceptron(
     nnci::Logger& logger,
     const std::filesystem::path& executable_directory) {
     if (options.validation) {
-        run_validation(logger);
+        run_validation(logger, options.cuda);
         return;
     }
 
@@ -240,7 +240,7 @@ void run_perceptron(
         examples,
         options.max_epochs,
         options.threshold,
-        &logger);
+        &logger, options.cuda);
 
     std::cout << (result.converged ? "Converged" : "Did not converge")
               << " after " << result.epochs << " epochs; updates="

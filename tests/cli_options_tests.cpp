@@ -89,6 +89,30 @@ void test_epoch_default_tracks_final_options() {
             "An explicit epoch limit must not compute the unused default");
 }
 
+void test_cuda_is_an_opt_in_modifier() {
+    require(!nnci::app::parse_perceptron_options({}).cuda,
+            "CUDA must default to false");
+    require(nnci::app::parse_perceptron_options({"--cuda"}).cuda,
+            "Bare --cuda must opt in without consuming a value");
+    for (const auto& arguments : std::vector<std::vector<std::string_view>>{
+             {"--validation", "--cuda"}, {"--cuda", "--validation"}}) {
+        const auto options = nnci::app::parse_perceptron_options(arguments);
+        require(options.validation && options.cuda,
+                "Validation must allow exactly the CUDA modifier in either order");
+    }
+    require_invalid_argument([] {
+        (void)nnci::app::parse_perceptron_options({"--cuda", "false"});
+    }, "--cuda must not accept a value");
+    require_invalid_argument([] {
+        (void)nnci::app::parse_perceptron_options({
+            "--validation", "--cuda", "--capacity"
+        });
+    }, "Validation must reject other run options");
+    require_invalid_argument([] {
+        (void)nnci::app::parse_perceptron_options({"--validation", "--validation"});
+    }, "Duplicate validation must not masquerade as a CUDA modifier");
+}
+
 void test_conflicting_and_invalid_options_are_rejected() {
     require_invalid_argument([] {
         (void)nnci::app::parse_perceptron_options({
@@ -118,6 +142,7 @@ int main() {
         test_defaults_are_finalized_once();
         test_explicit_values_and_n_sweep_options();
         test_epoch_default_tracks_final_options();
+        test_cuda_is_an_opt_in_modifier();
         test_conflicting_and_invalid_options_are_rejected();
         std::cout << "PASS CLI option tests\n";
         return 0;

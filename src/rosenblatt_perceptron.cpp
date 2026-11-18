@@ -1,6 +1,7 @@
 #include "nnci/assignments.hpp"
 
 #include "assignment_utils.hpp"
+#include "perceptron_backend.hpp"
 #include "nnci/logging.hpp"
 
 #include <cmath>
@@ -46,10 +47,12 @@ PerceptronResult train_rosenblatt_perceptron(
     const std::vector<LabeledExample>& examples,
     std::size_t max_epochs,
     double threshold,
-    Logger* logger) {
-    if (max_epochs == 0) {
+    Logger* logger,
+    bool cuda) {
+    if (max_epochs == 0 || !std::isfinite(threshold)) {
         PerceptronError error(
-            PerceptronErrorCode::InvalidOptions, "Maximum epochs must be positive");
+            PerceptronErrorCode::InvalidOptions,
+            "Maximum epochs must be positive and threshold finite");
         log_error(logger, error);
         throw error;
     }
@@ -61,6 +64,15 @@ PerceptronResult train_rosenblatt_perceptron(
         PerceptronError error(PerceptronErrorCode::InvalidDataset, cause.what());
         log_error(logger, error);
         throw error;
+    }
+
+    if (cuda) {
+        try {
+            return detail::train_perceptron_cuda({examples}, max_epochs, threshold, logger).front();
+        } catch (const PerceptronError& error) {
+            log_error(logger, error);
+            throw;
+        }
     }
 
     if (logger != nullptr) {
