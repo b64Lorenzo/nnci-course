@@ -24,13 +24,19 @@ Value parse_number(std::string_view text, std::string_view option) {
 void finalize_options(PerceptronOptions& options) {
     if (options.dimensions == 0 ||
         options.datasets == 0 ||
-        options.max_epochs == 0) {
+        (options.max_epochs_explicit && options.max_epochs == 0)) {
         throw std::invalid_argument(
             "Dimensions, datasets, and maximum epochs must be positive");
     }
 
+    options.max_epochs = options.epochs_for(
+        options.n_start != 0 ? options.n_start : options.dimensions);
+
     // N sweeps need per-dimension defaults, so defer pattern-range validation.
     if (options.n_start != 0) {
+        const auto last = options.n_start +
+            ((options.n_end - options.n_start) / options.n_step) * options.n_step;
+        (void)options.epochs_for(last);
         if ((options.p_min_explicit && options.p_min == 0) ||
             (options.p_max_explicit && options.p_max == 0) ||
             (options.p_step_explicit && options.p_step == 0)) {
@@ -85,6 +91,20 @@ void finalize_options(PerceptronOptions& options) {
 
 }  // namespace
 
+std::size_t PerceptronOptions::epochs_for(std::size_t dimension_count) const {
+    if (dimension_count == 0 || datasets == 0 ||
+        (max_epochs_explicit && max_epochs == 0)) {
+        throw std::invalid_argument("Dimensions, datasets, and maximum epochs must be positive");
+    }
+    if (max_epochs_explicit) {
+        return max_epochs;
+    }
+    if (dimension_count > std::numeric_limits<std::size_t>::max() / datasets) {
+        throw std::invalid_argument("N * nD exceeds the supported epoch limit");
+    }
+    return dimension_count * datasets;
+}
+
 PerceptronOptions parse_perceptron_options(
     const std::vector<std::string_view>& arguments) {
     PerceptronOptions options;
@@ -127,6 +147,7 @@ PerceptronOptions parse_perceptron_options(
                 options.datasets = parse_number<std::size_t>(value, option);
             } else if (option == "--max-epochs") {
                 options.max_epochs = parse_number<std::size_t>(value, option);
+                options.max_epochs_explicit = true;
             } else if (option == "--p-min") {
                 options.p_min = parse_number<std::size_t>(value, option);
                 options.p_min_explicit = true;

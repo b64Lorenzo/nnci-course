@@ -56,6 +56,7 @@ class NCapacityPatternRangeTest(unittest.TestCase):
         }
         self.assertTrue(required.issubset(rows[0]))
         for row in rows:
+            self.assertEqual(int(row["nmax"]), 5)
             dimensions, patterns = int(row["N"]), int(row["P"])
             datasets = int(row["nD"])
             successes = int(row["successes"])
@@ -78,6 +79,23 @@ class NCapacityPatternRangeTest(unittest.TestCase):
                 -(2 * dimensions - patterns) / sqrt(patterns - 1) / sqrt(2.0)
             )
             self.assertAlmostEqual(float(row["P_ls_normal"]), approximate)
+
+    def test_default_epochs_follow_each_swept_dimension(self):
+        executable = Path(sys.argv[1]).resolve()
+        with tempfile.TemporaryDirectory(prefix="nnci-epochs-") as temporary:
+            completed = subprocess.run(
+                [str(executable), "perceptron", "--NCapacity", "2", "4", "2",
+                 "--datasets", "3", "--p-min", "1", "--p-max", "1", "--p-step", "1"],
+                cwd=temporary, capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+            with (Path(temporary) / "results/capacity_N_sweep.csv").open(
+                newline="", encoding="utf-8"
+            ) as stream:
+                rows = list(csv.DictReader(stream))
+            self.assertEqual([int(row["N"]) for row in rows], [2, 4])
+            for row in rows:
+                self.assertEqual(int(row["nmax"]), int(row["N"]) * int(row["nD"]))
 
     def test_default_p_max_is_derived_from_each_swept_dimension(self):
         executable = Path(sys.argv[1]).resolve()

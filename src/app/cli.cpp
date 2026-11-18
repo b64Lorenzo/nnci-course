@@ -22,7 +22,7 @@ void print_usage() {
         << "Perceptron options:\n"
         << "  --dimensions N    feature count (default: 20)\n"
         << "  --datasets nD     datasets per P (default: 50)\n"
-        << "  --max-epochs nmax (default: 100)\n"
+        << "  --max-epochs nmax (default: N * nD, recalculated for each swept N)\n"
         << "  --p-min P         first pattern count (default: max(1, N/10))\n"
         << "  --p-max P         last pattern count (default: 3N)\n"
         << "  --p-step P        pattern-count step (default: max(1, N/10))\n"

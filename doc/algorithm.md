@@ -2,7 +2,7 @@
 
 Each pattern has `N` independent standard-normal features and a random label `s ∈ {-1,+1}`. A dataset contains `P` patterns; capacity plots use `alpha = P/N`. The program generates data internally, and `--seed` makes runs repeatable for a fixed toolchain.
 
-Training starts with zero weights and visits patterns in order. For pattern `μ`, the signed potential is `Eμ = sμ(w · xμ)`. If `Eμ <= threshold`, update `wi += sμ xi/N`. The default threshold is zero; with it, a run converges when every pattern has positive potential. Negative thresholds can let nonpositive potentials skip updates, so use zero for standard assignment results. Training stops at convergence or `--max-epochs`.
+Training starts with zero weights and visits patterns in order. For pattern `μ`, the signed potential is `Eμ = sμ(w · xμ)`. If `Eμ <= threshold`, update `wi += sμ xi/N`. The default threshold is zero; with it, a run converges when every pattern has positive potential. Negative thresholds can let nonpositive potentials skip updates, so use zero for standard assignment results. Training stops at convergence or `--max-epochs`. When omitted, the epoch limit is `N * nD`, where `nD` is the configured independent dataset/trial count, not the pattern count `P`. Each swept N gets its own derived limit; an explicit positive override stays fixed.
 
 ## Capacity statistics
 

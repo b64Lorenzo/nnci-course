@@ -1,7 +1,9 @@
 #include "perceptron_options.hpp"
 
 #include <iostream>
+#include <limits>
 #include <stdexcept>
+#include <string>
 
 namespace {
 
@@ -25,7 +27,8 @@ void test_defaults_are_finalized_once() {
     const auto options = nnci::app::parse_perceptron_options({});
     require(options.dimensions == 20, "Default dimensions should be 20");
     require(options.datasets == 50, "Default dataset count should be 50");
-    require(options.max_epochs == 100, "Default epoch count should be 100");
+    require(options.max_epochs == options.dimensions * options.datasets,
+            "Default epoch limit should be N times nD");
     require(options.patterns == 20, "Default pattern count should equal N");
     require(options.p_step == 2, "Default P step should be max(1, N/10)");
     require(options.p_min == 2, "Default P minimum should equal the P step");
@@ -61,6 +64,31 @@ void test_explicit_values_and_n_sweep_options() {
             "N sweep defaults should remain deferred until each dimension");
 }
 
+void test_epoch_default_tracks_final_options() {
+    for (const auto& arguments : std::vector<std::vector<std::string_view>>{
+             {"--dimensions", "7", "--datasets", "3"},
+             {"--datasets", "3", "--dimensions", "7"}}) {
+        const auto options = nnci::app::parse_perceptron_options(arguments);
+        require(options.max_epochs == options.dimensions * options.datasets,
+                "The derived epoch limit must use the final N and nD");
+    }
+    require_invalid_argument([] {
+        (void)nnci::app::parse_perceptron_options({"--max-epochs", "0"});
+    }, "Explicit zero epochs must not mean automatic epochs");
+
+    const auto largest = std::to_string(std::numeric_limits<std::size_t>::max());
+    require_invalid_argument([&] {
+        (void)nnci::app::parse_perceptron_options({
+            "--dimensions", "2", "--datasets", largest
+        });
+    }, "Automatic epoch multiplication must reject overflow");
+    const auto explicit_limit = nnci::app::parse_perceptron_options({
+        "--dimensions", "2", "--datasets", largest, "--max-epochs", "1"
+    });
+    require(explicit_limit.max_epochs == 1,
+            "An explicit epoch limit must not compute the unused default");
+}
+
 void test_conflicting_and_invalid_options_are_rejected() {
     require_invalid_argument([] {
         (void)nnci::app::parse_perceptron_options({
@@ -89,6 +117,7 @@ int main() {
     try {
         test_defaults_are_finalized_once();
         test_explicit_values_and_n_sweep_options();
+        test_epoch_default_tracks_final_options();
         test_conflicting_and_invalid_options_are_rejected();
         std::cout << "PASS CLI option tests\n";
         return 0;

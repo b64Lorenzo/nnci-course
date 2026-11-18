@@ -84,6 +84,7 @@ void run_n_capacity(
     for (std::size_t dimensions = options.n_start;;) {
         PerceptronOptions current = options;
         current.dimensions = dimensions;
+        current.max_epochs = options.epochs_for(dimensions);
 
         // Keep explicit P bounds across the N sweep; otherwise derive defaults from N.
         const auto default_step = std::max<std::size_t>(1, dimensions / 10);

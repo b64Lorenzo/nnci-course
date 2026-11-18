@@ -11,13 +11,14 @@ namespace nnci::app {
 struct PerceptronOptions {
     std::size_t dimensions = 20;
     std::size_t datasets = 50;
-    std::size_t max_epochs = 100;
+    std::size_t max_epochs = dimensions * datasets;
     std::size_t p_min = 0;
     std::size_t p_max = 0;
     std::size_t p_step = 0;
     bool p_min_explicit = false;
     bool p_max_explicit = false;
     bool p_step_explicit = false;
+    bool max_epochs_explicit = false;
     std::uint64_t seed = 2026;
     double threshold = 0.0;
     std::filesystem::path output;
@@ -31,6 +32,8 @@ struct PerceptronOptions {
     std::size_t n_start = 0;
     std::size_t n_end = 0;
     std::size_t n_step = 0;
+
+    [[nodiscard]] std::size_t epochs_for(std::size_t dimension_count) const;
 };
 
 [[nodiscard]] PerceptronOptions parse_perceptron_options(

@@ -130,7 +130,7 @@ if(BUILD_TESTING)
     )
     set_tests_properties(perceptron_capacity_smoke PROPERTIES
         PASS_REGULAR_EXPRESSION "Wrote 4 capacity points"
-        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-working-directory"
     )
 
 
@@ -142,7 +142,7 @@ if(BUILD_TESTING)
     )
     set_tests_properties(perceptron_ncapacity_combined_plot_smoke PROPERTIES
         PASS_REGULAR_EXPRESSION "Saved combined capacity plot to"
-        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-working-directory"
     )
 
     add_test(NAME perceptron_strength_plot_external_working_directory

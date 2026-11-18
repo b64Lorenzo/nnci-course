@@ -35,6 +35,8 @@ nnci.exe perceptron --validation
 .\build\Release\nnci.exe perceptron --strength --dimensions 20 --patterns 15
 ```
 
+The default epoch limit is `N * nD` (`--dimensions` times `--datasets`), recalculated for every N in a sweep. Use `--max-epochs` to supply a fixed positive override.
+
 The plotting scripts must stay beside `nnci.exe`. CSVs, plots, and logs are written relative to the current working directory.
 
 ## More
