@@ -115,6 +115,8 @@ PerceptronOptions parse_perceptron_options(
 
         if (option == "--cuda") {
             options.cuda = true;
+        } else if (option == "--parallelize") {
+            options.parallelize = true;
         } else if (option == "--validation") {
             options.validation = true;
         } else if (option == "--capacity") {
@@ -194,6 +196,14 @@ PerceptronOptions parse_perceptron_options(
     if (options.strength && (options.capacity || saw_n_capacity)) {
         throw std::invalid_argument(
             "Use --strength separately from capacity options");
+    }
+    if (options.parallelize && options.cuda) {
+        throw std::invalid_argument(
+            "Use either --parallelize for CPU workers or --cuda, not both");
+    }
+    if (options.parallelize && !options.capacity && !saw_n_capacity) {
+        throw std::invalid_argument(
+            "--parallelize requires --capacity or --NCapacity");
     }
 
     finalize_options(options);

@@ -33,6 +33,7 @@ void print_usage() {
         << "  --NCapacity START END STEP  sweep N and create one combined plot\n"
         << "  --strength        run strength convergence study and plot it (default: false)\n"
         << "  --cuda            opt in to CUDA (default: false)\n"
+        << "  --parallelize     use bounded CPU workers for capacity/NCapacity\n"
         << "  --validation      run deterministic separable and non-separable checks\n"
         << "  --patterns P      patterns for single-run or strength study (default: N)\n"
         << "  --help            show this help message\n";

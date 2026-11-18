@@ -131,10 +131,12 @@ jobs:
               nnci.exe --help
               nnci.exe perceptron --validation
               nnci.exe perceptron --capacity --dimensions 20 --p-min 15 --p-max 60 --p-step 5
+              nnci.exe perceptron --NCapacity 20 60 20 --parallelize
               nnci.exe perceptron --strength --dimensions 20 --patterns 15
 
           Optional GPU example: `nnci.exe perceptron --capacity --dimensions 20 --cuda`.
           CPU execution is the default. Pass --cuda to use an NVIDIA GPU with a CUDA-13.4-compatible driver. The CUDA runtime is statically linked; no toolkit installation is required to run this package. Built GPU architectures: 75, 80, 86, 89, 90, with PTX forward compatibility. NVIDIA runtime terms are in CUDA_LICENSE.txt.
+          For CPU capacity or NCapacity studies, pass --parallelize to run independent work on a bounded worker pool. It cannot be combined with --cuda.
 
           ## Docs
 
@@ -153,9 +155,11 @@ jobs:
           Quick start:
               nnci.exe --help
               nnci.exe perceptron --validation
+              nnci.exe perceptron --NCapacity 20 60 20 --parallelize
               nnci.exe perceptron --strength --dimensions 20 --patterns 15
 
           Optional GPU execution: append --cuda. CPU remains the default.
+          Use --parallelize to run independent CPU capacity/NCapacity tasks concurrently; it cannot be combined with --cuda.
           An NVIDIA GPU and CUDA-13.4-compatible driver are required for --cuda.
           No toolkit is required at runtime. See CUDA_LICENSE.txt for NVIDIA terms.
 

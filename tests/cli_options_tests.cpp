@@ -113,6 +113,34 @@ void test_cuda_is_an_opt_in_modifier() {
     }, "Duplicate validation must not masquerade as a CUDA modifier");
 }
 
+void test_parallelize_is_an_opt_in_capacity_strategy() {
+    require(!nnci::app::parse_perceptron_options({}).parallelize,
+            "CPU study parallelism must default to false");
+    const auto capacity = nnci::app::parse_perceptron_options({
+        "--parallelize", "--capacity"
+    });
+    require(capacity.parallelize && capacity.capacity,
+            "--parallelize should opt in for capacity studies");
+    const auto sweep = nnci::app::parse_perceptron_options({
+        "--NCapacity", "2", "4", "2", "--parallelize"
+    });
+    require(sweep.parallelize && sweep.n_start == 2,
+            "--parallelize should opt in for NCapacity sweeps");
+    require_invalid_argument([] {
+        (void)nnci::app::parse_perceptron_options({"--parallelize"});
+    }, "CPU parallelism must require a capacity study");
+    require_invalid_argument([] {
+        (void)nnci::app::parse_perceptron_options({
+            "--capacity", "--parallelize", "--cuda"
+        });
+    }, "CPU parallelism and CUDA must not be combined");
+    require_invalid_argument([] {
+        (void)nnci::app::parse_perceptron_options({
+            "--strength", "--parallelize"
+        });
+    }, "CPU parallelism must not be accepted by strength studies");
+}
+
 void test_conflicting_and_invalid_options_are_rejected() {
     require_invalid_argument([] {
         (void)nnci::app::parse_perceptron_options({
@@ -143,6 +171,7 @@ int main() {
         test_explicit_values_and_n_sweep_options();
         test_epoch_default_tracks_final_options();
         test_cuda_is_an_opt_in_modifier();
+        test_parallelize_is_an_opt_in_capacity_strategy();
         test_conflicting_and_invalid_options_are_rejected();
         std::cout << "PASS CLI option tests\n";
         return 0;

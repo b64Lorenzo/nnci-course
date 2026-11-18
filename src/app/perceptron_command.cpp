@@ -28,7 +28,7 @@ std::vector<double> make_alphas(const PerceptronOptions& options) {
     return alphas;
 }
 
-void run_capacity_csv(
+void log_capacity_options(
     const PerceptronOptions& options,
     nnci::Logger& logger) {
     logger.write(nnci::LogLevel::Info, "study",
@@ -41,20 +41,46 @@ void run_capacity_csv(
         ", seed=" + std::to_string(options.seed) +
         ", threshold=" + std::to_string(options.threshold) +
         ", output=" + options.output.string());
+}
 
-    const auto points = nnci::estimate_perceptron_capacity(
-        options.dimensions,
-        make_alphas(options),
-        options.datasets,
-        options.max_epochs,
-        options.seed,
-        options.threshold,
-        &logger, options.cuda);
+nnci::CapacityStudySpec make_capacity_study(const PerceptronOptions& options) {
+    return {
+        options.dimensions, make_alphas(options), options.datasets,
+        options.max_epochs, options.seed, options.threshold
+    };
+}
 
+void write_capacity_result(
+    const PerceptronOptions& options,
+    const std::vector<nnci::CapacityPoint>& points) {
     write_capacity_csv(
         options.output, options.dimensions, options.max_epochs, options.seed, points);
     std::cout << "Wrote " << points.size() << " capacity points to "
-              << options.output.string() << '\n';
+              << options.output.string() << '\n' << std::flush;
+}
+
+void run_capacity_csv(
+    const PerceptronOptions& options,
+    nnci::Logger& logger) {
+    log_capacity_options(options, logger);
+
+    std::vector<nnci::CapacityPoint> points;
+    if (options.parallelize) {
+        points = nnci::estimate_perceptron_capacity_parallel(
+            {make_capacity_study(options)},
+            nnci::CapacityExecutionMode::CpuParallel, &logger).front();
+    } else {
+        points = nnci::estimate_perceptron_capacity(
+            options.dimensions,
+            make_alphas(options),
+            options.datasets,
+            options.max_epochs,
+            options.seed,
+            options.threshold,
+            &logger, options.cuda);
+    }
+
+    write_capacity_result(options, points);
 }
 
 void run_capacity_and_plot(
@@ -80,6 +106,9 @@ void run_n_capacity(
     nnci::Logger& logger,
     const std::filesystem::path& executable_directory) {
     std::vector<std::filesystem::path> csv_paths;
+    const bool use_batched_scheduler = options.cuda || options.parallelize;
+    std::vector<PerceptronOptions> scheduled_options;
+    std::vector<nnci::CapacityStudySpec> studies;
 
     for (std::size_t dimensions = options.n_start;;) {
         PerceptronOptions current = options;
@@ -108,7 +137,13 @@ void run_n_capacity(
         current.output = std::filesystem::path("results") /
             ("capacity_N" + std::to_string(dimensions) + ".csv");
 
-        run_capacity_csv(current, logger);
+        if (use_batched_scheduler) {
+            log_capacity_options(current, logger);
+            scheduled_options.push_back(current);
+            studies.push_back(make_capacity_study(current));
+        } else {
+            run_capacity_csv(current, logger);
+        }
         csv_paths.push_back(current.output);
 
         if (options.n_step > options.n_end - dimensions) {
@@ -116,6 +151,17 @@ void run_n_capacity(
         }
 
         dimensions += options.n_step;
+    }
+
+    if (use_batched_scheduler) {
+        const auto mode = options.cuda
+            ? nnci::CapacityExecutionMode::Cuda
+            : nnci::CapacityExecutionMode::CpuParallel;
+        const auto results = nnci::estimate_perceptron_capacity_parallel(
+            studies, mode, &logger);
+        for (std::size_t index = 0; index < scheduled_options.size(); ++index) {
+            write_capacity_result(scheduled_options[index], results[index]);
+        }
     }
 
     const std::filesystem::path combined_csv = "results/capacity_N_sweep.csv";

@@ -27,6 +27,7 @@ struct PerceptronOptions {
     bool strength = false;
     bool validation = false;
     bool cuda = false;
+    bool parallelize = false;
     std::size_t patterns = 0;
 
     // All zero means --NCapacity was not supplied.

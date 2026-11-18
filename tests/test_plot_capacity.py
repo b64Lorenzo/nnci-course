@@ -4,6 +4,7 @@ from pathlib import Path
 
 from scripts.plot_capacity import (
     normal_approximation,
+    plot_capacity,
     read_capacity_csv,
     theoretical_probability,
     wilson_interval,
@@ -50,6 +51,19 @@ class PlotCapacityTests(unittest.TestCase):
         self.assertAlmostEqual(rows[1]["Q_ls_variance_est"], 0.75 * 0.25 / 20)
         self.assertGreater(rows[0]["Q_ls_wilson95_low"], 0.0)
         self.assertEqual(rows[0]["Q_ls_wilson95_high"], 1.0)
+
+    def test_plot_capacity_handles_extreme_rates(self):
+        content = (
+            "N,P,nD,successes,Q_ls\n"
+            "2,2,513,513,1.0\n"
+            "2,3,513,0,0.0\n"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "capacity.csv"
+            output = Path(directory) / "capacity.png"
+            source.write_text(content, encoding="utf-8")
+            plot_capacity([source], output)
+            self.assertTrue(output.is_file())
 
 
 if __name__ == "__main__":

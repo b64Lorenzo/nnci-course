@@ -31,6 +31,9 @@ nnci.exe perceptron --validation
 # Capacity sweep over N
 .\build\Release\nnci.exe perceptron --NCapacity 20 60 20
 
+# Opt in to bounded CPU parallelism across independent capacity/N trials
+.\build\Release\nnci.exe perceptron --NCapacity 20 60 20 --parallelize
+
 # Strength histogram
 .\build\Release\nnci.exe perceptron --strength --dimensions 20 --patterns 15
 ```
@@ -51,9 +54,11 @@ ctest --test-dir build-cuda --output-on-failure
 .\build-cuda\nnci.exe perceptron --capacity --dimensions 20 --datasets 2048 --cuda
 ```
 
+`--parallelize` opts capacity and N-capacity studies into a bounded CPU worker pool for independent P/trial and N tasks. Without it, CPU studies remain sequential. It cannot be combined with `--cuda` and is rejected without a capacity study.
+
 `--cuda` is a bare opt-in flag for single runs, capacity/N sweeps, strength studies, and validation. The build option `NNCI_ENABLE_CUDA` defaults to `OFF`; explicit `ON` requires a working CUDA compiler. Missing CUDA build support, a device, or a compatible driver produces a clear error, never a CPU fallback. A supported NVIDIA driver is required at runtime; the CUDA runtime is linked statically.
 
-The backend parallelizes independent datasets, not the sequential updates within one dataset. Host RNG and trial order remain unchanged. Batches are bounded to 1024 datasets and 64 MiB of resident device buffers; a dataset that cannot fit is rejected. Work-bounded kernels resume even within a feature loop to avoid one unbounded epoch launch. Small or single-dataset jobs can be slower than CPU execution. See [development](doc/development.md) for architecture overrides and GPU test selection.
+CUDA capacity/NCapacity execution batches independent P, N, and trial datasets together, but never parallelizes the sequential updates within one dataset. Host RNG and result order remain unchanged. Batches are bounded to 1024 datasets and 64 MiB of resident device buffers; a dataset that cannot fit is rejected. Work-bounded kernels resume even within a feature loop to avoid one unbounded epoch launch. Small or single-dataset jobs can be slower than CPU execution. See [development](doc/development.md) for architecture overrides and GPU test selection.
 
 ## More
 

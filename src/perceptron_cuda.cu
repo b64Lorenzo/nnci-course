@@ -82,15 +82,18 @@ __device__ void advance_training_pattern(TrainingState& state, std::size_t patte
 // Resumable dot products retain the exact sequential CPU addition order.
 __global__ void train_chunk(
     const double* inputs, const int* labels, double* weights, double* strengths,
-    TrainingState* states, std::size_t datasets, std::size_t patterns,
-    std::size_t dimensions, std::size_t max_epochs, double threshold) {
+    const CudaDatasetDescriptor* descriptors, TrainingState* states,
+    std::size_t datasets) {
     const std::size_t trial = blockIdx.x * blockDim.x + threadIdx.x;
     if (trial >= datasets) return;
+    const auto descriptor = descriptors[trial];
+    const auto patterns = descriptor.patterns;
+    const auto dimensions = descriptor.dimensions;
     auto state = states[trial];
-    auto* w = weights + trial * dimensions;
-    auto* x = strengths + trial * patterns;
-    const auto* data = inputs + trial * patterns * dimensions;
-    const auto* signs = labels + trial * patterns;
+    auto* w = weights + descriptor.weight_offset;
+    auto* x = strengths + descriptor.strength_offset;
+    const auto* data = inputs + descriptor.input_offset;
+    const auto* signs = labels + descriptor.label_offset;
 
     for (unsigned int work = 0; work < 4096 &&
          state.phase != Finished && state.phase != Failed; ++work) {
@@ -122,20 +125,20 @@ __global__ void train_chunk(
             break;
         }
         if (state.phase == Training) {
-            if (potential <= threshold) {
+            if (potential <= descriptor.threshold) {
                 state.phase = Updating;
             } else {
                 advance_training_pattern(state, patterns);
             }
         } else {
             if (potential <= 0.0) state.all_correct = false;
-            // Check every final potential: an earlier miss must not hide a NaN/overflow.
+            // Check every final potential: an early miss must not hide a later overflow.
             if (++state.pattern == patterns) {
                 state.pattern = 0;
                 if (state.all_correct) {
                     state.converged = true;
                     state.phase = Finished;
-                } else if (state.epochs == max_epochs) {
+                } else if (state.epochs == descriptor.max_epochs) {
                     state.phase = Finished;
                 } else {
                     state.updated = false;
@@ -167,51 +170,89 @@ void initialize_device(Logger* logger) {
 
 std::vector<PerceptronResult> train_perceptron_cuda(
     const std::vector<PerceptronDataset>& datasets,
-    std::size_t max_epochs, double threshold, Logger* logger) {
-    if (max_epochs == 0 || !std::isfinite(threshold)) {
-        throw PerceptronError(PerceptronErrorCode::InvalidOptions,
-                              "Maximum epochs must be positive and threshold finite");
-    }
+    const std::vector<CudaTrainingOptions>& options,
+    Logger* logger) {
     if (datasets.empty()) {
-        throw PerceptronError(PerceptronErrorCode::InvalidDataset, "Training batch must not be empty");
+        throw PerceptronError(PerceptronErrorCode::InvalidDataset,
+                              "Training batch must not be empty");
     }
-    std::size_t dimensions = 0;
-    const auto patterns = datasets.front().size();
-    try {
-        dimensions = validate_labeled_examples(datasets.front());
-        for (const auto& dataset : datasets) {
-            if (validate_labeled_examples(dataset) != dimensions || dataset.size() != patterns) {
-                throw std::invalid_argument("CUDA batch datasets must have matching shapes");
-            }
-        }
-    } catch (const std::invalid_argument& error) {
-        throw PerceptronError(PerceptronErrorCode::InvalidDataset, error.what());
-    }
-    if (datasets.size() > perceptron_cuda_batch_size(patterns, dimensions)) {
+    if (datasets.size() > cuda_batch_dataset_limit) {
         throw std::runtime_error("CUDA batch exceeds the 64 MiB / 1024 dataset batch limit");
     }
-    initialize_device(logger);
-    const auto count = datasets.size();
+    if (options.size() != datasets.size()) {
+        throw PerceptronError(PerceptronErrorCode::InvalidOptions,
+                              "CUDA batch options must match the dataset count");
+    }
+
+    std::vector<CudaDatasetDescriptor> descriptors;
+    descriptors.reserve(datasets.size());
+    std::size_t batch_bytes = 0;
+    std::size_t total_inputs = 0;
+    std::size_t total_labels = 0;
+    std::size_t total_weights = 0;
+    std::size_t total_strengths = 0;
+    const auto add_count = [](std::size_t current, std::size_t addition) {
+        if (addition > std::numeric_limits<std::size_t>::max() - current) {
+            throw std::runtime_error("CUDA allocation size is out of range");
+        }
+        return current + addition;
+    };
+
+    for (std::size_t trial = 0; trial < datasets.size(); ++trial) {
+        if (options[trial].max_epochs == 0 || !std::isfinite(options[trial].threshold)) {
+            throw PerceptronError(PerceptronErrorCode::InvalidOptions,
+                                  "Maximum epochs must be positive and threshold finite");
+        }
+        const auto& dataset = datasets[trial];
+        std::size_t dimensions = 0;
+        try {
+            dimensions = validate_labeled_examples(dataset);
+        } catch (const std::invalid_argument& error) {
+            throw PerceptronError(PerceptronErrorCode::InvalidDataset, error.what());
+        }
+        const auto patterns = dataset.size();
+        const auto bytes = perceptron_cuda_dataset_bytes(patterns, dimensions);
+        if (bytes > cuda_batch_memory_limit - batch_bytes) {
+            throw std::runtime_error("CUDA batch exceeds the 64 MiB / 1024 dataset batch limit");
+        }
+        batch_bytes += bytes;
+
+        const auto input_count = patterns * dimensions;
+        descriptors.push_back({
+            total_inputs, total_labels, total_weights, total_strengths,
+            patterns, dimensions, options[trial].max_epochs, options[trial].threshold
+        });
+        total_inputs = add_count(total_inputs, input_count);
+        total_labels = add_count(total_labels, patterns);
+        total_weights = add_count(total_weights, dimensions);
+        total_strengths = add_count(total_strengths, patterns);
+    }
+
     std::vector<double> inputs;
     std::vector<int> labels;
-    inputs.reserve(count * patterns * dimensions);
-    labels.reserve(count * patterns);
+    inputs.reserve(total_inputs);
+    labels.reserve(total_labels);
     for (const auto& dataset : datasets) {
         for (const auto& example : dataset) {
             inputs.insert(inputs.end(), example.input.begin(), example.input.end());
             labels.push_back(example.label);
         }
     }
+
+    initialize_device(logger);
+    const auto count = datasets.size();
     std::vector<TrainingState> states(count);
-    DeviceBuffer<double> device_inputs(inputs.size());
-    DeviceBuffer<int> device_labels(labels.size());
-    DeviceBuffer<double> device_weights(count * dimensions);
-    DeviceBuffer<double> device_strengths(count * patterns);
+    DeviceBuffer<double> device_inputs(total_inputs);
+    DeviceBuffer<int> device_labels(total_labels);
+    DeviceBuffer<double> device_weights(total_weights);
+    DeviceBuffer<double> device_strengths(total_strengths);
+    DeviceBuffer<CudaDatasetDescriptor> device_descriptors(count);
     DeviceBuffer<TrainingState> device_states(count);
     device_inputs.upload(inputs.data());
     device_labels.upload(labels.data());
     device_weights.zero();
     device_strengths.zero();
+    device_descriptors.upload(descriptors.data());
     device_states.upload(states.data());
 
     bool pending = true;
@@ -219,8 +260,7 @@ std::vector<PerceptronResult> train_perceptron_cuda(
     while (pending) {
         train_chunk<<<static_cast<unsigned int>((count + 127) / 128), 128>>>(
             device_inputs.get(), device_labels.get(), device_weights.get(),
-            device_strengths.get(), device_states.get(), count, patterns,
-            dimensions, max_epochs, threshold);
+            device_strengths.get(), device_descriptors.get(), device_states.get(), count);
         check_cuda(cudaGetLastError(), "kernel launch failed");
         check_cuda(cudaDeviceSynchronize(), "kernel execution failed");
         ++launches;
@@ -240,20 +280,30 @@ std::vector<PerceptronResult> train_perceptron_cuda(
             "cuda_batch datasets=" + std::to_string(count) +
             "; launches=" + std::to_string(launches));
     }
-    std::vector<double> weights(count * dimensions);
-    std::vector<double> strengths(count * patterns);
+    std::vector<double> weights(total_weights);
+    std::vector<double> strengths(total_strengths);
     device_weights.download(weights.data());
     device_strengths.download(strengths.data());
     std::vector<PerceptronResult> results;
     results.reserve(count);
     for (std::size_t trial = 0; trial < count; ++trial) {
+        const auto& descriptor = descriptors[trial];
         results.push_back({
-            Vector(weights.begin() + trial * dimensions, weights.begin() + (trial + 1) * dimensions),
+            Vector(weights.begin() + descriptor.weight_offset,
+                   weights.begin() + descriptor.weight_offset + descriptor.dimensions),
             states[trial].epochs, states[trial].updates, states[trial].converged,
-            Vector(strengths.begin() + trial * patterns, strengths.begin() + (trial + 1) * patterns)
+            Vector(strengths.begin() + descriptor.strength_offset,
+                   strengths.begin() + descriptor.strength_offset + descriptor.patterns)
         });
     }
     return results;
+}
+
+std::vector<PerceptronResult> train_perceptron_cuda(
+    const std::vector<PerceptronDataset>& datasets,
+    std::size_t max_epochs, double threshold, Logger* logger) {
+    return train_perceptron_cuda(
+        datasets, std::vector<CudaTrainingOptions>(datasets.size(), {max_epochs, threshold}), logger);
 }
 
 }  // namespace nnci::detail

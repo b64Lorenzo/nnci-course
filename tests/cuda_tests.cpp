@@ -45,8 +45,11 @@ void test_batch_budget_is_checked_before_allocation() {
         }
         require(rejected, "Invalid, overflowed and over-budget shapes must be rejected");
     }
-    const auto exact_patterns = (nnci::detail::cuda_batch_memory_limit - sizeof(double) - 128) /
-                                (2 * sizeof(double) + sizeof(int));
+    const auto exact_patterns =
+        (nnci::detail::cuda_batch_memory_limit - sizeof(double) -
+         sizeof(nnci::detail::CudaDatasetDescriptor) -
+         nnci::detail::cuda_batch_state_bytes) /
+        (2 * sizeof(double) + sizeof(int));
     require(nnci::detail::perceptron_cuda_batch_size(exact_patterns, 1) == 1,
             "The exact resident-memory boundary must fit one dataset");
     bool rejected_boundary = false;
@@ -117,6 +120,26 @@ void test_work_chunks_resume_inside_patterns_and_epochs() {
     compare_twice(many_patterns, 3, 0);
 }
 
+void test_mixed_shape_batch_matches_cpu_and_keeps_order() {
+    const std::vector<nnci::detail::PerceptronDataset> datasets{
+        nnci::make_random_binary_data(4, 2, 31),
+        nnci::make_random_binary_data(7, 4, 37),
+        nnci::make_random_binary_data(3, 1, 41),
+    };
+    const std::vector<nnci::detail::CudaTrainingOptions> options{
+        {7, 0.0}, {13, 0.25}, {1, -0.5}
+    };
+    const auto first = nnci::detail::train_perceptron_cuda(datasets, options, nullptr);
+    const auto second = nnci::detail::train_perceptron_cuda(datasets, options, nullptr);
+    require(first.size() == datasets.size(), "A mixed batch must retain every task");
+    for (std::size_t task = 0; task < datasets.size(); ++task) {
+        const auto cpu = nnci::train_rosenblatt_perceptron(
+            datasets[task], options[task].max_epochs, options[task].threshold);
+        require_equal(cpu, first[task]);
+        require_equal(first[task], second[task]);
+    }
+}
+
 template <typename Function>
 void require_code(Function function, nnci::PerceptronErrorCode expected) {
     try {
@@ -172,6 +195,7 @@ int main() {
         test_threshold_and_nonseparable_semantics();
         test_seeded_parallel_batch_and_feature_order();
         test_work_chunks_resume_inside_patterns_and_epochs();
+        test_mixed_shape_batch_matches_cpu_and_keeps_order();
         test_error_codes_and_all_final_potentials();
         std::cout << "PASS native CUDA/CPU exact differential tests\n";
         return 0;

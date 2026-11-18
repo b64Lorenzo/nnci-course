@@ -50,6 +50,17 @@ struct CapacityPoint {
     double success_rate;
 };
 
+struct CapacityStudySpec {
+    std::size_t dimensions;
+    std::vector<double> alphas;
+    std::size_t datasets_per_point;
+    std::size_t max_epochs;
+    std::uint64_t seed;
+    double threshold;
+};
+
+enum class CapacityExecutionMode { CpuParallel, Cuda };
+
 [[nodiscard]] std::vector<LabeledExample> make_random_binary_data(
     std::size_t count, std::size_t dimensions, std::uint64_t seed);
 
@@ -65,6 +76,12 @@ struct CapacityPoint {
     std::uint64_t seed,
     double threshold,
     Logger* logger = nullptr, bool cuda = false);
+
+// Runs independent (N, P, dataset) tasks in bounded CPU or CUDA batches.
+[[nodiscard]] std::vector<std::vector<CapacityPoint>> estimate_perceptron_capacity_parallel(
+    const std::vector<CapacityStudySpec>& studies,
+    CapacityExecutionMode mode,
+    Logger* logger = nullptr);
 
 // Returns one embedding-strength vector per converged trial.
 // Each vector has one x^mu value per training pattern.

@@ -145,8 +145,8 @@ def plot_capacity(csv_paths: list[str | Path], output_path: str | Path) -> None:
         exact = [float(row["P_ls_exact"]) for row in rows]
         normal = [float(row["P_ls_normal"]) for row in rows]
 
-        lower_error = [q - low for q, low in zip(empirical, lower)]
-        upper_error = [high - q for q, high in zip(empirical, upper)]
+        lower_error = [max(0.0, q - low) for q, low in zip(empirical, lower)]
+        upper_error = [max(0.0, high - q) for q, high in zip(empirical, upper)]
         empirical_line = axis.errorbar(
             alpha,
             empirical,

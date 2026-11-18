@@ -25,6 +25,8 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+find_package(Threads REQUIRED)
+
 add_library(nnci_logging src/logging.cpp)
 target_include_directories(nnci_logging PUBLIC include)
 
@@ -33,7 +35,7 @@ add_library(nnci_perceptron
     src/rosenblatt_perceptron.cpp
 )
 target_include_directories(nnci_perceptron PUBLIC include)
-target_link_libraries(nnci_perceptron PUBLIC nnci_logging)
+target_link_libraries(nnci_perceptron PUBLIC nnci_logging Threads::Threads)
 if(NNCI_ENABLE_CUDA)
     target_sources(nnci_perceptron PRIVATE src/perceptron_cuda.cu)
     set_property(TARGET nnci_perceptron PROPERTY CUDA_RUNTIME_LIBRARY Static)

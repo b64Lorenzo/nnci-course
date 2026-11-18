@@ -56,11 +56,76 @@ class CudaCliTests(unittest.TestCase):
                         expected = dimension * 3 if name == "sweep" else 5
                         self.assertEqual({int(row["nmax"]) for row in rows}, {expected})
 
+    def test_parallelize_capacity_and_n_sweep_match_sequential_cpu(self):
+        scenarios = {
+            "capacity": ["--capacity", "--dimensions", "3", "--datasets", "8",
+                         "--max-epochs", "5", "--p-min", "1", "--p-max", "3",
+                         "--p-step", "1", "--seed", "17", "--debug"],
+            "sweep": ["--NCapacity", "2", "4", "2", "--datasets", "3",
+                      "--max-epochs", "5", "--p-min", "1", "--p-max", "4",
+                      "--p-step", "1", "--seed", "17", "--debug"],
+        }
+        for name, arguments in scenarios.items():
+            with self.subTest(mode=name), tempfile.TemporaryDirectory() as sequential_dir, tempfile.TemporaryDirectory() as parallel_dir:
+                sequential = self.run_cli(sequential_dir, arguments)
+                parallel = self.run_cli(parallel_dir, [*arguments, "--parallelize"])
+                self.assertEqual(sequential.returncode, 0, sequential.stderr)
+                self.assertEqual(parallel.returncode, 0, parallel.stderr)
+                self.assertEqual(sequential.stdout, parallel.stdout)
+                self.assertIn("scheduler=cpu-parallel; workers=", parallel.stderr)
+                sequential_csv = {p.name: p.read_bytes() for p in Path(sequential_dir).glob("results/*.csv")}
+                parallel_csv = {p.name: p.read_bytes() for p in Path(parallel_dir).glob("results/*.csv")}
+                self.assertEqual(sequential_csv, parallel_csv)
+
+    def test_cuda_capacity_batches_all_p_and_n_trials_together(self):
+        if not CUDA_ENABLED:
+            self.skipTest("Native GPU contract")
+        scenarios = {
+            "capacity": (9, ["--debug", "--capacity", "--dimensions", "4",
+                              "--datasets", "3", "--p-min", "2", "--p-max", "6",
+                              "--p-step", "2", "--seed", "17"]),
+            "sweep": (12, ["--debug", "--NCapacity", "2", "4", "2",
+                           "--datasets", "2", "--p-min", "1", "--p-max", "3",
+                           "--p-step", "1", "--seed", "17"]),
+        }
+        for name, (tasks, arguments) in scenarios.items():
+            with self.subTest(mode=name), tempfile.TemporaryDirectory() as cpu_dir, tempfile.TemporaryDirectory() as gpu_dir:
+                cpu = self.run_cli(cpu_dir, arguments)
+                gpu = self.run_cli(gpu_dir, [*arguments, "--cuda"])
+                self.assertEqual(cpu.returncode, 0, cpu.stderr)
+                self.assertEqual(gpu.returncode, 0, gpu.stderr)
+                self.assertEqual(cpu.stdout, gpu.stdout)
+                self.assertEqual(gpu.stderr.count("cuda_batch datasets="), 1, gpu.stderr)
+                self.assertIn(f"cuda_batch datasets={tasks};", gpu.stderr)
+                cpu_csv = {p.name: p.read_bytes() for p in Path(cpu_dir).glob("results/*.csv")}
+                gpu_csv = {p.name: p.read_bytes() for p in Path(gpu_dir).glob("results/*.csv")}
+                self.assertEqual(cpu_csv, gpu_csv)
+
+    def test_cuda_capacity_chunks_mixed_p_at_the_batch_limit(self):
+        if not CUDA_ENABLED:
+            self.skipTest("Native GPU contract")
+        arguments = ["--capacity", "--dimensions", "2", "--datasets", "513",
+                     "--max-epochs", "2", "--p-min", "1", "--p-max", "2",
+                     "--p-step", "1", "--seed", "23"]
+        with tempfile.TemporaryDirectory() as cpu_dir, tempfile.TemporaryDirectory() as gpu_dir:
+            cpu = self.run_cli(cpu_dir, arguments)
+            gpu = self.run_cli(gpu_dir, ["--debug", *arguments, "--cuda"])
+            self.assertEqual(cpu.returncode, 0, cpu.stderr)
+            self.assertEqual(gpu.returncode, 0, gpu.stderr)
+            self.assertEqual(cpu.stdout, gpu.stdout)
+            self.assertEqual(gpu.stderr.count("cuda_batch datasets="), 2, gpu.stderr)
+            self.assertIn("cuda_batch datasets=1024;", gpu.stderr)
+            self.assertIn("cuda_batch datasets=2;", gpu.stderr)
+            cpu_csv = {p.name: p.read_bytes() for p in Path(cpu_dir).glob("results/*.csv")}
+            gpu_csv = {p.name: p.read_bytes() for p in Path(gpu_dir).glob("results/*.csv")}
+            self.assertEqual(cpu_csv, gpu_csv)
+
     def test_help_documents_cuda_opt_in(self):
         with tempfile.TemporaryDirectory() as directory:
             result = self.run_cli(directory, ["--help"])
             self.assertEqual(result.returncode, 0)
             self.assertIn("--cuda            opt in to CUDA (default: false)", result.stdout)
+            self.assertIn("--parallelize", result.stdout)
 
     def test_parallel_studies_keep_tail_and_trial_order(self):
         if not CUDA_ENABLED:
