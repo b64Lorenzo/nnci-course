@@ -194,6 +194,13 @@ if(BUILD_TESTING)
 
     find_package(Python3 COMPONENTS Interpreter QUIET)
     if(Python3_Interpreter_FOUND)
+        add_test(NAME cuda_sdk_bootstrap
+            COMMAND "${Python3_EXECUTABLE}" -m unittest discover
+                    -s "${CMAKE_SOURCE_DIR}/tests" -p test_cuda_sdk.py
+        )
+        set_tests_properties(cuda_sdk_bootstrap PROPERTIES
+            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        )
         add_test(NAME perceptron_cuda_cli
             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/test_cuda_cli.py"
                     "$<TARGET_FILE:nnci>" "$<IF:$<BOOL:${NNCI_ENABLE_CUDA}>,on,off>"

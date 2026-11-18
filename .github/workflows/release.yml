@@ -56,20 +56,48 @@ jobs:
             }
           }
 
-      - name: Configure Release build
-        run: cmake -S . -B build -A x64 -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+      - name: Prepare isolated CUDA SDK and MSVC environment
+        shell: pwsh
+        run: |
+          $cuda = Join-Path $env:RUNNER_TEMP "nnci-cuda"
+          python scripts/install_cuda.py --output $cuda
+          if ($LASTEXITCODE -ne 0) { throw "CUDA SDK bootstrap failed" }
+          "CUDA_PATH=$cuda" >> $env:GITHUB_ENV
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = (& $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath).Trim()
+          if (-not $vs) { throw "MSVC installation not found" }
+          $setup = 'call "{0}\VC\Auxiliary\Build\vcvars64.bat" >nul && set' -f $vs
+          $variables = @("PATH", "INCLUDE", "LIB", "LIBPATH", "VSINSTALLDIR", "VCINSTALLDIR", "VCToolsInstallDir", "VCToolsVersion", "WindowsSdkDir", "WindowsSDKVersion", "UniversalCRTSdkDir", "UCRTVersion")
+          $environment = cmd.exe /d /c $setup
+          if ($LASTEXITCODE -ne 0) { throw "MSVC environment setup failed" }
+          foreach ($line in $environment) {
+            if ($line -match '^([^=]+)=(.*)$' -and $variables -contains $Matches[1]) {
+              $line >> $env:GITHUB_ENV
+            }
+          }
+
+      - name: Configure CUDA-enabled Release build
+        shell: pwsh
+        run: |
+          $ninja = Join-Path $env:VSINSTALLDIR "Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/ninja.exe"
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_MAKE_PROGRAM="$ninja" -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded `
+            -DNNCI_ENABLE_CUDA=ON -DCUDAToolkit_ROOT="$env:CUDA_PATH" `
+            -DCMAKE_CUDA_COMPILER="$env:CUDA_PATH/bin/nvcc.exe" `
+            -DCMAKE_CUDA_ARCHITECTURES="75;80;86;89;90"
+          if ($LASTEXITCODE -ne 0) { throw "CUDA configuration failed" }
 
       - name: Build
         run: cmake --build build --config Release
 
-      - name: Test
+      - name: Test CPU regression suite (hosted runner has no GPU)
         run: |
-          ctest --test-dir build -C Release --output-on-failure
+          ctest --test-dir build -C Release -LE gpu --output-on-failure
 
       - name: Smoke-test executable
         shell: pwsh
         run: |
-          $exe = "build/Release/nnci.exe"
+          $exe = "build/nnci.exe"
           if (-not (Test-Path $exe)) { throw "Release executable not found: $exe" }
           & $exe --help
           if ($LASTEXITCODE -ne 0) { throw "Executable help smoke test failed" }
@@ -79,9 +107,11 @@ jobs:
         run: |
           $packageRoot = "dist/nnci-windows-x64"
           New-Item -ItemType Directory -Force "$packageRoot/scripts" | Out-Null
-          Copy-Item "build/Release/nnci.exe" "$packageRoot/nnci.exe"
-          Copy-Item "build/Release/scripts/plot_capacity.py" "$packageRoot/scripts/plot_capacity.py"
-          Copy-Item "build/Release/scripts/plot_strength.py" "$packageRoot/scripts/plot_strength.py"
+          Copy-Item "build/nnci.exe" "$packageRoot/nnci.exe"
+          Copy-Item "build/scripts/plot_capacity.py" "$packageRoot/scripts/plot_capacity.py"
+          Copy-Item "build/scripts/plot_strength.py" "$packageRoot/scripts/plot_strength.py"
+          Copy-Item "scripts/install_cuda.py" "$packageRoot/scripts/install_cuda.py"
+          Copy-Item "$env:CUDA_PATH/licenses/cuda_cudart/LICENSE" "$packageRoot/CUDA_LICENSE.txt"
           Copy-Item "requirements-plot.txt" "$packageRoot/requirements-plot.txt"
           New-Item -ItemType Directory -Force "$packageRoot/doc" | Out-Null
           Copy-Item -Path "doc/*" -Destination "$packageRoot/doc" -Recurse
@@ -103,12 +133,15 @@ jobs:
               nnci.exe perceptron --capacity --dimensions 20 --p-min 15 --p-max 60 --p-step 5
               nnci.exe perceptron --strength --dimensions 20 --patterns 15
 
+          Optional GPU example: `nnci.exe perceptron --capacity --dimensions 20 --cuda`.
+          CPU execution is the default. Pass --cuda to use an NVIDIA GPU with a CUDA-13.4-compatible driver. The CUDA runtime is statically linked; no toolkit installation is required to run this package. Built GPU architectures: 75, 80, 86, 89, 90, with PTX forward compatibility. NVIDIA runtime terms are in CUDA_LICENSE.txt.
+
           ## Docs
 
           See [doc/README.md](doc/README.md) for the algorithm and build notes.
 
           Results and logs are written relative to the current working directory. Plotting scripts are found beside nnci.exe.
-          '@ | Set-Content "$packageRoot/README.md"
+          '@ | Set-Content "$packageRoot/README.md" -Encoding utf8
           @'
           NNCI Course Project — Windows x64
 
@@ -122,9 +155,13 @@ jobs:
               nnci.exe perceptron --validation
               nnci.exe perceptron --strength --dimensions 20 --patterns 15
 
+          Optional GPU execution: append --cuda. CPU remains the default.
+          An NVIDIA GPU and CUDA-13.4-compatible driver are required for --cuda.
+          No toolkit is required at runtime. See CUDA_LICENSE.txt for NVIDIA terms.
+
           Docs: doc/README.md, doc/algorithm.md, doc/development.md
           Results and logs are written relative to the current working directory.
-          '@ | Set-Content "$packageRoot/README.txt"
+          '@ | Set-Content "$packageRoot/README.txt" -Encoding utf8
           Compress-Archive -Path "$packageRoot/*" -DestinationPath "dist/nnci-windows-x64.zip" -Force
 
           $check = Join-Path $env:RUNNER_TEMP "nnci-package-check"
@@ -133,6 +170,8 @@ jobs:
               -not (Test-Path "$check/scripts/plot_strength.py") -or
               -not (Test-Path "$check/scripts/plot_capacity.py") -or
               -not (Test-Path "$check/requirements-plot.txt") -or
+              -not (Test-Path "$check/scripts/install_cuda.py") -or
+              -not (Test-Path "$check/CUDA_LICENSE.txt") -or
               -not (Test-Path "$check/README.md") -or
               -not (Test-Path "$check/README.txt") -or
               -not (Test-Path "$check/doc/README.md") -or
