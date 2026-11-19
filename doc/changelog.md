@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.2
+
+### Changed
+- Replace CUDA's online updates with synchronous batch Hebbian learning: freeze epoch potentials, select `Eμ <= c`, reduce the selected vectors in parallel, and update weights once by their total divided by N.
+- Recompute signed potentials in parallel and converge only when their minimum is strictly positive; empty selections and cancelling sums run to the epoch limit if strict separation is not reached.
+- Use cooperative 256-thread dataset blocks, parallel feature/pattern reductions and at most eight epochs per launch. Existing mixed N/P/trial scheduling and CPU online behavior remain unchanged.
+- Include potential and selection-mask buffers in the 64 MiB resident-device budget. CUDA results may now differ from CPU results by design.
+
+### Tests
+- Independent scalar batch oracle, hand-calculated updates, strict zero/negative-potential boundaries, cancellation, mixed N/P options, long loops, deterministic reruns, subnormals and numerical errors.
+- Keep CPU-only rejection, CPU-parallel parity, CUDA CLI modes, per-N epoch defaults/overrides, mixed-case batches and tail coverage.
+
 ## 0.3.1
 
 ### Added

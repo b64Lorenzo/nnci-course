@@ -12,6 +12,8 @@ using PerceptronDataset = std::vector<LabeledExample>;
 inline constexpr std::size_t cuda_batch_memory_limit = 64 * 1024 * 1024;
 inline constexpr std::size_t cuda_batch_dataset_limit = 1024;
 inline constexpr std::size_t cuda_batch_state_bytes = 128;
+inline constexpr std::size_t cuda_pattern_storage_bytes =
+    sizeof(int) + 2 * sizeof(double) + sizeof(unsigned char);
 
 struct CudaTrainingOptions {
     std::size_t max_epochs;
@@ -40,12 +42,12 @@ struct CudaDatasetDescriptor {
     }
     const auto input_values = patterns * dimensions;
     if (input_values > maximum / sizeof(double) ||
-        patterns > maximum / (sizeof(int) + sizeof(double)) ||
+        patterns > maximum / cuda_pattern_storage_bytes ||
         dimensions > maximum / sizeof(double)) {
         overflow();
     }
     const auto inputs = input_values * sizeof(double);
-    const auto labels_and_strengths = patterns * (sizeof(int) + sizeof(double));
+    const auto labels_and_strengths = patterns * cuda_pattern_storage_bytes;
     const auto weights = dimensions * sizeof(double);
     const auto overhead = sizeof(CudaDatasetDescriptor) + cuda_batch_state_bytes;
     if (inputs > maximum - labels_and_strengths ||

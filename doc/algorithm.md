@@ -2,7 +2,26 @@
 
 Each pattern has `N` independent standard-normal features and a random label `s ∈ {-1,+1}`. A dataset contains `P` patterns; capacity plots use `alpha = P/N`. The program generates data internally, and `--seed` makes runs repeatable for a fixed toolchain.
 
-Training starts with zero weights and visits patterns in order. For pattern `μ`, the signed potential is `Eμ = sμ(w · xμ)`. If `Eμ <= threshold`, update `wi += sμ xi/N`. Thresholds must be finite. An epoch with no updates converges immediately, even for a negative threshold; otherwise every final signed potential must be positive, independently of the update threshold. All final potentials are evaluated so an earlier nonpositive value cannot hide numerical failure. A solution in the last permitted epoch counts as success. The default threshold is zero; negative thresholds can report convergence without strict separation, so use zero for standard assignment results. Training stops at convergence or `--max-epochs`. When omitted, the epoch limit is `N * nD`, where `nD` is the configured independent dataset/trial count, not the pattern count `P`. Each swept N gets its own derived limit; an explicit positive override stays fixed.
+## Training rules
+
+Both backends start with zero weights, use finite threshold `c` (default zero), and signed potentials `Eμ = sμ(w · inputμ)`. A solution in the final permitted epoch counts as success. The default epoch limit is `N * nD`, where `N` is feature dimensions and `nD` is datasets/trials, not pattern count `P`. Each swept N gets its own limit; an explicit positive `--max-epochs` stays fixed.
+
+### CPU: online Rosenblatt
+
+CPU training, including `--parallelize`, visits patterns in order. If the current `Eμ <= c`, it immediately updates `w += sμ inputμ/N`; later patterns see the changed weights. An epoch with no updates converges immediately, even for a negative threshold. Otherwise all final potentials must be strictly positive. This existing CPU behavior is unchanged; use `c=0` for standard assignment results.
+
+### CUDA: synchronous batch Hebbian learning
+
+Since v0.3.2, `--cuda` uses this recurrence, not the online CPU algorithm:
+
+1. Freeze all `Eμ(t)` from `w(t)` and select `A(t) = {μ : Eμ(t) <= c}`.
+2. Sum the selected Hebbian vectors in parallel and apply **one** weight update:
+   `w(t+1) = w(t) + (1/N) * sum_{μ in A(t)} sμ inputμ`.
+3. Recompute every `Eμ(t+1)` in parallel. Stop iff `minμ Eμ(t+1) > 0`; otherwise repeat until the epoch limit.
+
+The learning rate is `1/N`: divide the total sum by N, not by `1/N`, P, or the selected-pattern count. Each selected pattern contributes once to its strength and to the update counter per epoch. An empty selection or cancelling sum does not imply convergence: if any potential is zero or negative, training continues to the limit. Non-finite sums, weights or potentials are errors.
+
+Batch and online learning can produce different weights, strengths, epochs and capacity estimates. CUDA reductions use FP64 with a fixed reduction tree; their floating-point addition order differs from a scalar reference. Seeded reruns remain deterministic for a fixed toolchain/device.
 
 ## Capacity statistics
 
@@ -18,6 +37,6 @@ For independent Gaussian patterns in general position with random binary labels,
 
 The CSV also reports the continuity-corrected normal approximation `Φ((2N-P)/√(P-1))` (`P=1` is defined as 1). At fixed load `α=P/N`, the limiting probability is 1 for `α<2` and 0 for `α>2`. The transition width is `O(N^-1/2)`: if `P=2N+b√N+o(√N)`, then `P_ls→Φ(-b/√2)`. Thus `α→2` alone does not determine the limit; the exact sequence `P=2N` has `P_ls=1/2` for every N.
 
-Plots show the empirical Wilson interval, exact and approximate curves, and the `α=2` limit. With the standard zero threshold, finite-budget training success requires separability, so `q≤P_ls`; sampling can nevertheless yield `Q_ls>P_ls`. Negative thresholds weaken that implication.
+Plots show the empirical Wilson interval, exact and approximate curves, and the `α=2` limit. With the standard zero threshold, finite-budget training success requires separability, so `q≤P_ls`; sampling can nevertheless yield `Q_ls>P_ls`. Negative thresholds weaken that implication for the online CPU rule only; CUDA always requires strict positive final potentials.
 
 A strength value `xμ` counts how many updates were caused by pattern μ. The strength histogram includes only patterns from trials that converged.

@@ -4,6 +4,7 @@
 #include "nnci/logging.hpp"
 
 #include <cuda_runtime.h>
+#include <math_constants.h>
 
 #include <limits>
 #include <mutex>
@@ -48,106 +49,122 @@ private:
     std::size_t bytes_;
 };
 
-enum Phase : int { Training, Updating, Checking, Finished, Failed };
+constexpr unsigned int warp_width = 32;
+constexpr unsigned int warps_per_dataset = 8;
+constexpr unsigned int threads_per_dataset = warp_width * warps_per_dataset;
+constexpr unsigned int epochs_per_launch = 8;
+
 struct TrainingState {
     std::size_t epochs = 0;
     std::size_t updates = 0;
-    std::size_t pattern = 0;
-    std::size_t feature = 0;
-    double sum = 0.0;
-    Phase phase = Training;
-    bool updated = false;
-    bool all_correct = true;
     bool converged = false;
+    bool failed = false;
 };
-static_assert(sizeof(TrainingState) <= 128);
+static_assert(sizeof(TrainingState) <= cuda_batch_state_bytes);
 
-__device__ void advance_training_pattern(TrainingState& state, std::size_t patterns) {
-    if (++state.pattern == patterns) {
-        ++state.epochs;
-        state.pattern = 0;
-        if (!state.updated) {
-            state.converged = true;
-            state.phase = Finished;
-        } else {
-            state.all_correct = true;
-            state.phase = Checking;
-        }
-    } else {
-        state.phase = Training;
-    }
-}
-
-// Each launch has a fixed feature-operation budget, even for a huge single epoch.
-// Resumable dot products retain the exact sequential CPU addition order.
-__global__ void train_chunk(
+// One cooperative block per dataset: each epoch reads a frozen selection mask.
+// Shared-memory barriers separate selection, Hebbian reduction and new potentials.
+__global__ void train_batch_epochs(
     const double* inputs, const int* labels, double* weights, double* strengths,
-    const CudaDatasetDescriptor* descriptors, TrainingState* states,
-    std::size_t datasets) {
-    const std::size_t trial = blockIdx.x * blockDim.x + threadIdx.x;
-    if (trial >= datasets) return;
+    double* potentials, unsigned char* selected,
+    const CudaDatasetDescriptor* descriptors, TrainingState* states) {
+    const auto trial = blockIdx.x;
     const auto descriptor = descriptors[trial];
     const auto patterns = descriptor.patterns;
     const auto dimensions = descriptor.dimensions;
-    auto state = states[trial];
+    const auto thread = threadIdx.x;
+    const auto lane = thread % warp_width;
+    const auto warp = thread / warp_width;
+    auto& state = states[trial];
     auto* w = weights + descriptor.weight_offset;
     auto* x = strengths + descriptor.strength_offset;
+    auto* e = potentials + descriptor.label_offset;
+    auto* active = selected + descriptor.label_offset;
     const auto* data = inputs + descriptor.input_offset;
     const auto* signs = labels + descriptor.label_offset;
+    __shared__ double sums[threads_per_dataset];
+    __shared__ unsigned long long counts[warps_per_dataset];
+    __shared__ int failed;
 
-    for (unsigned int work = 0; work < 4096 &&
-         state.phase != Finished && state.phase != Failed; ++work) {
-        const auto offset = state.pattern * dimensions + state.feature;
-        if (state.phase == Updating) {
-            w[state.feature] += signs[state.pattern] * data[offset] /
-                                static_cast<double>(dimensions);
-            if (!isfinite(w[state.feature])) {
-                state.phase = Failed;
-                break;
-            }
-            if (++state.feature == dimensions) {
-                state.feature = 0;
-                x[state.pattern] += 1.0;
-                ++state.updates;
-                state.updated = true;
-                advance_training_pattern(state, patterns);
-            }
-            continue;
-        }
+    for (unsigned int step = 0; step < epochs_per_launch; ++step) {
+        if (state.converged || state.failed || state.epochs == descriptor.max_epochs) return;
+        if (thread == 0) failed = 0;
+        __syncthreads();
 
-        state.sum += w[state.feature] * data[offset];
-        if (++state.feature != dimensions) continue;
-        const double potential = signs[state.pattern] * state.sum;
-        state.feature = 0;
-        state.sum = 0.0;
-        if (!isfinite(potential)) {
-            state.phase = Failed;
-            break;
-        }
-        if (state.phase == Training) {
-            if (potential <= descriptor.threshold) {
-                state.phase = Updating;
-            } else {
-                advance_training_pattern(state, patterns);
+        unsigned long long count = 0;
+        for (std::size_t pattern = thread; pattern < patterns; pattern += threads_per_dataset) {
+            active[pattern] = e[pattern] <= descriptor.threshold;
+            if (active[pattern]) {
+                x[pattern] += 1.0;
+                ++count;
             }
-        } else {
-            if (potential <= 0.0) state.all_correct = false;
-            // Check every final potential: an early miss must not hide a later overflow.
-            if (++state.pattern == patterns) {
-                state.pattern = 0;
-                if (state.all_correct) {
-                    state.converged = true;
-                    state.phase = Finished;
-                } else if (state.epochs == descriptor.max_epochs) {
-                    state.phase = Finished;
-                } else {
-                    state.updated = false;
-                    state.phase = Training;
+        }
+        for (unsigned int offset = warp_width / 2; offset != 0; offset /= 2) {
+            count += __shfl_down_sync(0xffffffff, count, offset);
+        }
+        if (lane == 0) counts[warp] = count;
+        __syncthreads();
+        if (thread == 0) {
+            std::size_t total = 0;
+            for (const auto value : counts) total += static_cast<std::size_t>(value);
+            if (total > ~std::size_t{0} - state.updates) failed = 1;
+            else state.updates += total;
+        }
+        __syncthreads();
+
+        // Eight pattern lanes accumulate coalesced 32-feature tiles, then reduce.
+        for (std::size_t first = 0; first < dimensions; first += warp_width) {
+            const auto feature = first + lane;
+            double sum = 0.0;
+            if (feature < dimensions) {
+                for (std::size_t pattern = warp; pattern < patterns; pattern += warps_per_dataset) {
+                    if (active[pattern]) sum += signs[pattern] * data[pattern * dimensions + feature];
                 }
             }
+            sums[thread] = sum;
+            __syncthreads();
+            for (unsigned int stride = warps_per_dataset / 2; stride != 0; stride /= 2) {
+                if (warp < stride) sums[thread] += sums[thread + stride * warp_width];
+                __syncthreads();
+            }
+            if (warp == 0 && feature < dimensions) {
+                w[feature] += sums[lane] / static_cast<double>(dimensions);
+                if (!isfinite(w[feature])) atomicExch(&failed, 1);
+            }
+            __syncthreads();
         }
+
+        double minimum = CUDART_INF;
+        for (std::size_t pattern = warp; pattern < patterns; pattern += warps_per_dataset) {
+            double sum = 0.0;
+            for (std::size_t feature = lane; feature < dimensions; feature += warp_width) {
+                sum += w[feature] * data[pattern * dimensions + feature];
+            }
+            for (unsigned int offset = warp_width / 2; offset != 0; offset /= 2) {
+                sum += __shfl_down_sync(0xffffffff, sum, offset);
+            }
+            if (lane == 0) {
+                const double potential = signs[pattern] * sum;
+                e[pattern] = potential;
+                if (!isfinite(potential)) atomicExch(&failed, 1);
+                minimum = fmin(minimum, potential);
+            }
+        }
+        if (lane == 0) sums[warp] = minimum;
+        __syncthreads();
+        if (warp == 0) {
+            minimum = lane < warps_per_dataset ? sums[lane] : CUDART_INF;
+            for (unsigned int offset = warp_width / 2; offset != 0; offset /= 2) {
+                minimum = fmin(minimum, __shfl_down_sync(0xffffffff, minimum, offset));
+            }
+            if (lane == 0) {
+                ++state.epochs;
+                state.failed = failed != 0;
+                state.converged = !state.failed && minimum > 0.0;
+            }
+        }
+        __syncthreads();
     }
-    states[trial] = state;
 }
 
 void initialize_device(Logger* logger) {
@@ -161,7 +178,7 @@ void initialize_device(Logger* logger) {
             logger->write(LogLevel::Info, "perceptron",
                 "backend=CUDA; device=" + std::string(properties.name) +
                 "; compute_capability=" + std::to_string(properties.major) + "." +
-                std::to_string(properties.minor));
+                std::to_string(properties.minor) + "; algorithm=synchronous-batch");
         });
     }
 }
@@ -246,32 +263,37 @@ std::vector<PerceptronResult> train_perceptron_cuda(
     DeviceBuffer<int> device_labels(total_labels);
     DeviceBuffer<double> device_weights(total_weights);
     DeviceBuffer<double> device_strengths(total_strengths);
+    DeviceBuffer<double> device_potentials(total_labels);
+    DeviceBuffer<unsigned char> device_selected(total_labels);
     DeviceBuffer<CudaDatasetDescriptor> device_descriptors(count);
     DeviceBuffer<TrainingState> device_states(count);
     device_inputs.upload(inputs.data());
     device_labels.upload(labels.data());
     device_weights.zero();
     device_strengths.zero();
+    device_potentials.zero();
     device_descriptors.upload(descriptors.data());
     device_states.upload(states.data());
 
     bool pending = true;
     std::size_t launches = 0;
     while (pending) {
-        train_chunk<<<static_cast<unsigned int>((count + 127) / 128), 128>>>(
+        train_batch_epochs<<<static_cast<unsigned int>(count), threads_per_dataset>>>(
             device_inputs.get(), device_labels.get(), device_weights.get(),
-            device_strengths.get(), device_descriptors.get(), device_states.get(), count);
+            device_strengths.get(), device_potentials.get(), device_selected.get(),
+            device_descriptors.get(), device_states.get());
         check_cuda(cudaGetLastError(), "kernel launch failed");
         check_cuda(cudaDeviceSynchronize(), "kernel execution failed");
         ++launches;
         device_states.download(states.data());
         pending = false;
-        for (const auto& state : states) {
-            if (state.phase == Failed) {
+        for (std::size_t trial = 0; trial < count; ++trial) {
+            const auto& state = states[trial];
+            if (state.failed) {
                 throw PerceptronError(PerceptronErrorCode::NumericalFailure,
-                                      "Potential or weight became non-finite");
+                                      "Hebbian sum, potential, weight or update count became non-finite/out of range");
             }
-            pending = pending || state.phase != Finished;
+            pending = pending || (!state.converged && state.epochs < options[trial].max_epochs);
         }
     }
 

@@ -1,8 +1,12 @@
 #include "nnci/assignments.hpp"
 #include "../src/perceptron_backend.hpp"
+#include "batch_reference.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <iostream>
 #include <limits>
+#include <random>
 #include <stdexcept>
 #include <string>
 
@@ -11,12 +15,33 @@ void require(bool condition, const char* message) {
     if (!condition) throw std::runtime_error(message);
 }
 
-void require_equal(const nnci::PerceptronResult& cpu, const nnci::PerceptronResult& gpu) {
-    require(cpu.weights == gpu.weights, "CPU/GPU weights must match exactly");
-    require(cpu.epochs == gpu.epochs, "CPU/GPU epochs must match");
-    require(cpu.updates == gpu.updates, "CPU/GPU updates must match");
-    require(cpu.strengths == gpu.strengths, "CPU/GPU pattern strengths must match exactly");
-    require(cpu.converged == gpu.converged, "CPU/GPU convergence must match");
+void require_equal(const nnci::PerceptronResult& expected, const nnci::PerceptronResult& gpu) {
+    require(expected.weights.size() == gpu.weights.size(), "Batch weight dimensions must match");
+    for (std::size_t i = 0; i < expected.weights.size(); ++i) {
+        const auto tolerance = 1e-12 * (1.0 + std::abs(expected.weights[i]));
+        require(std::isfinite(gpu.weights[i]) &&
+                std::abs(expected.weights[i] - gpu.weights[i]) <= tolerance,
+                "CUDA weights must match the independent synchronous batch reference");
+    }
+    require(expected.epochs == gpu.epochs, "Batch epochs must match");
+    require(expected.updates == gpu.updates, "Batch selected-pattern counts must match");
+    require(expected.strengths == gpu.strengths, "Batch pattern strengths must match exactly");
+    require(expected.converged == gpu.converged, "Batch convergence must match");
+}
+
+void test_epoch_freezes_potentials_before_hebbian_sum() {
+    const std::vector<nnci::LabeledExample> examples{{{1.0, 1.0}, 1}, {{1.0, 2.0}, 1}};
+    const auto expected = nnci::test::batch_reference(examples, 1, 0.0);
+    require(expected.weights == nnci::Vector{1.0, 1.5} && expected.updates == 2 &&
+            expected.strengths == nnci::Vector{1.0, 1.0} && expected.converged,
+            "The scalar oracle must match the hand-calculated Hebbian sum divided by N");
+    const auto gpu = nnci::train_rosenblatt_perceptron(examples, 1, 0.0, nullptr, true);
+    require(gpu.weights == expected.weights && gpu.updates == 2 &&
+            gpu.strengths == expected.strengths && gpu.epochs == 1 && gpu.converged,
+            "CUDA must freeze all potentials, then apply the full Hebbian sum / N once per epoch");
+    const auto cpu = nnci::train_rosenblatt_perceptron(examples, 1, 0.0);
+    require(cpu.weights == nnci::Vector{0.5, 0.5} && cpu.updates == 1,
+            "The requested CUDA algorithm change must not change online CPU training");
 }
 
 void test_last_epoch_separable_parity() {
@@ -49,7 +74,7 @@ void test_batch_budget_is_checked_before_allocation() {
         (nnci::detail::cuda_batch_memory_limit - sizeof(double) -
          sizeof(nnci::detail::CudaDatasetDescriptor) -
          nnci::detail::cuda_batch_state_bytes) /
-        (2 * sizeof(double) + sizeof(int));
+        (3 * sizeof(double) + sizeof(int) + sizeof(unsigned char));
     require(nnci::detail::perceptron_cuda_batch_size(exact_patterns, 1) == 1,
             "The exact resident-memory boundary must fit one dataset");
     bool rejected_boundary = false;
@@ -71,19 +96,21 @@ void test_batch_budget_is_checked_before_allocation() {
 
 void compare_twice(const std::vector<nnci::LabeledExample>& examples,
                    std::size_t epochs, double threshold) {
-    const auto cpu = nnci::train_rosenblatt_perceptron(examples, epochs, threshold);
+    const auto cpu = nnci::test::batch_reference(examples, epochs, threshold);
     const auto gpu = nnci::train_rosenblatt_perceptron(examples, epochs, threshold, nullptr, true);
     require_equal(cpu, gpu);
-    require_equal(gpu, nnci::train_rosenblatt_perceptron(examples, epochs, threshold, nullptr, true));
+    const auto repeat = nnci::train_rosenblatt_perceptron(examples, epochs, threshold, nullptr, true);
+    require_equal(gpu, repeat);
+    require(gpu.weights == repeat.weights, "Fixed CUDA reductions must be bitwise repeatable");
 }
 
 void test_threshold_and_nonseparable_semantics() {
     const std::vector<nnci::LabeledExample> contradictory{{{1.0}, 1}, {{1.0}, -1}};
     compare_twice(contradictory, 19, 0.0);
     const auto negative = nnci::train_rosenblatt_perceptron(contradictory, 19, -0.5, nullptr, true);
-    require(negative.converged && negative.epochs == 1 && negative.updates == 0 &&
+    require(!negative.converged && negative.epochs == 19 && negative.updates == 0 &&
             negative.weights == nnci::Vector{0.0} && negative.strengths == nnci::Vector{0.0, 0.0},
-            "A no-update epoch must converge immediately, including at negative threshold");
+            "No active patterns must not imply convergence while min(E) is zero");
     compare_twice(contradictory, 19, -0.5);
     const std::vector<nnci::LabeledExample> repeated{{{1.0}, 1}, {{1.0}, 1}};
     const auto positive = nnci::train_rosenblatt_perceptron(repeated, 1, 2.0, nullptr, true);
@@ -103,14 +130,20 @@ void test_seeded_parallel_batch_and_feature_order() {
             const auto second = nnci::detail::train_perceptron_cuda(datasets, 23, threshold, nullptr);
             require(first.size() == datasets.size(), "The partial GPU block must retain every result");
             for (std::size_t trial = 0; trial < datasets.size(); ++trial) {
-                require_equal(nnci::train_rosenblatt_perceptron(datasets[trial], 23, threshold), first[trial]);
+                require_equal(nnci::test::batch_reference(datasets[trial], 23, threshold), first[trial]);
                 require_equal(first[trial], second[trial]);
+                require(first[trial].weights == second[trial].weights,
+                        "Seeded batch reductions must be deterministic");
             }
         }
     }
     compare_twice({{{0.1, -0.2, 0.7}, 1}, {{-0.9, 0.3, 0.1}, -1}}, 5, 0);
     const double tiny = std::numeric_limits<double>::denorm_min() * 7;
     compare_twice({{{tiny, tiny, -tiny}, 1}}, 3, 0);
+    const std::vector<nnci::LabeledExample> subnormal{{{tiny, tiny, -tiny}, 1}};
+    require(nnci::test::batch_reference(subnormal, 3, 0).weights ==
+            nnci::train_rosenblatt_perceptron(subnormal, 3, 0, nullptr, true).weights,
+            "Subnormal updates must not be hidden by the normal-scale tolerance");
 }
 
 void test_work_chunks_resume_inside_patterns_and_epochs() {
@@ -133,11 +166,60 @@ void test_mixed_shape_batch_matches_cpu_and_keeps_order() {
     const auto second = nnci::detail::train_perceptron_cuda(datasets, options, nullptr);
     require(first.size() == datasets.size(), "A mixed batch must retain every task");
     for (std::size_t task = 0; task < datasets.size(); ++task) {
-        const auto cpu = nnci::train_rosenblatt_perceptron(
+        const auto cpu = nnci::test::batch_reference(
             datasets[task], options[task].max_epochs, options[task].threshold);
         require_equal(cpu, first[task]);
         require_equal(first[task], second[task]);
     }
+}
+
+void test_zero_minimum_and_batch_cancellation_exhaust_epochs() {
+    const std::vector<nnci::LabeledExample> zero{{{1.0, 0.0}, 1}, {{0.0, 0.0}, -1}};
+    const auto result = nnci::train_rosenblatt_perceptron(zero, 4, 0, nullptr, true);
+    require(!result.converged && result.epochs == 4 && result.updates == 5 &&
+            result.weights == nnci::Vector{0.5, 0.0} && result.strengths == nnci::Vector{1.0, 4.0},
+            "A zero final potential must not satisfy strict min(E) > 0");
+    const std::vector<nnci::LabeledExample> cancel{{{1.0}, 1}, {{1.0}, -1}};
+    const auto cancelled = nnci::train_rosenblatt_perceptron(cancel, 17, 0, nullptr, true);
+    require(!cancelled.converged && cancelled.epochs == 17 && cancelled.updates == 34 &&
+            cancelled.weights == nnci::Vector{0.0} && cancelled.strengths == nnci::Vector{17, 17},
+            "Cancelling Hebbian terms must continue across launches until max_epochs");
+}
+
+void test_capacity_and_strengths_use_batch_reference() {
+    const std::vector<nnci::CapacityStudySpec> studies{
+        {4, {0.5, 1.0, 1.5}, 7, 9, 17, 0.0}, {2, {0.5, 2.0}, 3, 3, 23, -0.5}
+    };
+    const auto actual = nnci::estimate_perceptron_capacity_parallel(
+        studies, nnci::CapacityExecutionMode::Cuda);
+    require(actual.size() == studies.size(), "Every mixed N study must be returned");
+    for (std::size_t index = 0; index < studies.size(); ++index) {
+        const auto& study = studies[index];
+        std::mt19937_64 random(study.seed);
+        require(actual[index].size() == study.alphas.size(), "Every P case must be returned");
+        for (std::size_t point = 0; point < study.alphas.size(); ++point) {
+            const auto patterns = std::max<std::size_t>(1, static_cast<std::size_t>(
+                std::llround(study.alphas[point] * study.dimensions)));
+            std::size_t successes = 0;
+            for (std::size_t trial = 0; trial < study.datasets_per_point; ++trial) {
+                const auto examples = nnci::make_random_binary_data(patterns, study.dimensions, random());
+                successes += nnci::test::batch_reference(examples, study.max_epochs, study.threshold).converged;
+            }
+            const auto& result = actual[index][point];
+            require(result.examples == patterns && result.successes == successes &&
+                    result.datasets == study.datasets_per_point &&
+                    result.success_rate == static_cast<double>(successes) / study.datasets_per_point,
+                    "Mixed N/P capacity results must match batch learning, not online CPU training");
+        }
+    }
+    std::mt19937_64 random(17);
+    std::vector<nnci::Vector> expected;
+    for (std::size_t trial = 0; trial < 19; ++trial) {
+        const auto result = nnci::test::batch_reference(nnci::make_random_binary_data(3, 4, random()), 9, 0);
+        if (result.converged) expected.push_back(result.strengths);
+    }
+    require(nnci::collect_converged_strengths(4, 3, 19, 9, 17, 0, nullptr, true) == expected,
+            "Strength exports must retain only converged batch trials, in seed order");
 }
 
 template <typename Function>
@@ -190,6 +272,7 @@ void test_error_codes_and_all_final_potentials() {
 
 int main() {
     try {
+        test_epoch_freezes_potentials_before_hebbian_sum();
         test_last_epoch_separable_parity();
         test_batch_budget_is_checked_before_allocation();
         test_threshold_and_nonseparable_semantics();
@@ -197,7 +280,9 @@ int main() {
         test_work_chunks_resume_inside_patterns_and_epochs();
         test_mixed_shape_batch_matches_cpu_and_keeps_order();
         test_error_codes_and_all_final_potentials();
-        std::cout << "PASS native CUDA/CPU exact differential tests\n";
+        test_zero_minimum_and_batch_cancellation_exhaust_epochs();
+        test_capacity_and_strengths_use_batch_reference();
+        std::cout << "PASS native CUDA synchronous-batch reference and CPU compatibility tests\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

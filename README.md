@@ -58,7 +58,9 @@ ctest --test-dir build-cuda --output-on-failure
 
 `--cuda` is a bare opt-in flag for single runs, capacity/N sweeps, strength studies, and validation. The build option `NNCI_ENABLE_CUDA` defaults to `OFF`; explicit `ON` requires a working CUDA compiler. Missing CUDA build support, a device, or a compatible driver produces a clear error, never a CPU fallback. A supported NVIDIA driver is required at runtime; the CUDA runtime is linked statically.
 
-CUDA capacity/NCapacity execution batches independent P, N, and trial datasets together, but never parallelizes the sequential updates within one dataset. Host RNG and result order remain unchanged. Batches are bounded to 1024 datasets and 64 MiB of resident device buffers; a dataset that cannot fit is rejected. Work-bounded kernels resume even within a feature loop to avoid one unbounded epoch launch. Small or single-dataset jobs can be slower than CPU execution. See [development](doc/development.md) for architecture overrides and GPU test selection.
+CUDA capacity/NCapacity execution still batches independent P, N, and trial datasets together. Since v0.3.2, each dataset also uses synchronous batch learning: classify every pattern from the same weights, reduce all selected Hebbian terms in parallel, apply their sum divided by N once, and recompute all potentials in parallel. Convergence requires `min(E) > 0`; no selected patterns alone is not convergence. CPU training remains online, so CPU and CUDA results need not match. See [algorithm](doc/algorithm.md) for the exact recurrence.
+
+Host RNG and result order remain unchanged. Batches are bounded to 1024 datasets and 64 MiB of resident device buffers; a dataset that cannot fit is rejected. Each cooperative dataset block runs at most eight epochs per launch. Small or single-dataset jobs can be slower than CPU execution. See [development](doc/development.md) for architecture overrides and GPU test selection.
 
 ## More
 
