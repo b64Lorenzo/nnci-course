@@ -52,7 +52,6 @@ private:
 constexpr unsigned int warp_width = 32;
 constexpr unsigned int warps_per_dataset = 8;
 constexpr unsigned int threads_per_dataset = warp_width * warps_per_dataset;
-constexpr unsigned int epochs_per_launch = 8;
 
 struct TrainingState {
     std::size_t epochs = 0;
@@ -67,7 +66,7 @@ static_assert(sizeof(TrainingState) <= cuda_batch_state_bytes);
 __global__ void train_batch_epochs(
     const double* inputs, const int* labels, double* weights, double* strengths,
     double* potentials, unsigned char* selected,
-    const CudaDatasetDescriptor* descriptors, TrainingState* states) {
+    const CudaDatasetDescriptor* descriptors, TrainingState* states, unsigned int epoch_limit) {
     const auto trial = blockIdx.x;
     const auto descriptor = descriptors[trial];
     const auto patterns = descriptor.patterns;
@@ -86,7 +85,7 @@ __global__ void train_batch_epochs(
     __shared__ unsigned long long counts[warps_per_dataset];
     __shared__ int failed;
 
-    for (unsigned int step = 0; step < epochs_per_launch; ++step) {
+    for (unsigned int step = 0; step < epoch_limit; ++step) {
         if (state.converged || state.failed || state.epochs == descriptor.max_epochs) return;
         if (thread == 0) failed = 0;
         __syncthreads();
@@ -167,7 +166,7 @@ __global__ void train_batch_epochs(
     }
 }
 
-void initialize_device(Logger* logger) {
+cudaDeviceProp initialize_device(Logger* logger) {
     int device = 0;
     check_cuda(cudaGetDevice(&device), "device discovery failed");
     cudaDeviceProp properties{};
@@ -181,9 +180,33 @@ void initialize_device(Logger* logger) {
                 std::to_string(properties.minor) + "; algorithm=synchronous-batch");
         });
     }
+    return properties;
 }
 
 }  // namespace
+
+CudaBatchLimits perceptron_cuda_limits(Logger* logger) {
+    const auto properties = initialize_device(logger);
+    int active_blocks = 0;
+    check_cuda(cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+        &active_blocks, train_batch_epochs, threads_per_dataset, 0), "occupancy query failed");
+    if (active_blocks <= 0 || properties.multiProcessorCount <= 0 || properties.maxGridSize[0] <= 0) {
+        throw std::runtime_error("CUDA device has no usable kernel capacity");
+    }
+    std::size_t free_bytes = 0, total_bytes = 0;
+    check_cuda(cudaMemGetInfo(&free_bytes, &total_bytes), "free-memory query failed");
+    const auto limits = make_cuda_batch_limits(free_bytes,
+        static_cast<std::size_t>(properties.multiProcessorCount) * active_blocks,
+        static_cast<std::size_t>(properties.maxGridSize[0]));
+    if (limits.datasets == 0) throw std::runtime_error("CUDA has insufficient free VRAM after safety reserve");
+    if (logger != nullptr) {
+        logger->write(LogLevel::Debug, "perceptron", "cuda_limits bytes=" +
+            std::to_string(limits.bytes) + "; dataset_limit=" + std::to_string(limits.datasets) +
+            "; free_bytes=" + std::to_string(free_bytes) +
+            "; reserve_bytes=" + std::to_string(free_bytes - limits.bytes));
+    }
+    return limits;
+}
 
 std::vector<PerceptronResult> train_perceptron_cuda(
     const std::vector<PerceptronDataset>& datasets,
@@ -193,13 +216,12 @@ std::vector<PerceptronResult> train_perceptron_cuda(
         throw PerceptronError(PerceptronErrorCode::InvalidDataset,
                               "Training batch must not be empty");
     }
-    if (datasets.size() > cuda_batch_dataset_limit) {
-        throw std::runtime_error("CUDA batch exceeds the 64 MiB / 1024 dataset batch limit");
-    }
     if (options.size() != datasets.size()) {
         throw PerceptronError(PerceptronErrorCode::InvalidOptions,
                               "CUDA batch options must match the dataset count");
     }
+    const auto limits = perceptron_cuda_limits(logger);
+    if (datasets.size() > limits.datasets) throw std::runtime_error("CUDA batch exceeds dynamic dataset limit");
 
     std::vector<CudaDatasetDescriptor> descriptors;
     descriptors.reserve(datasets.size());
@@ -208,6 +230,7 @@ std::vector<PerceptronResult> train_perceptron_cuda(
     std::size_t total_labels = 0;
     std::size_t total_weights = 0;
     std::size_t total_strengths = 0;
+    std::size_t maximum_inputs = 0;
     const auto add_count = [](std::size_t current, std::size_t addition) {
         if (addition > std::numeric_limits<std::size_t>::max() - current) {
             throw std::runtime_error("CUDA allocation size is out of range");
@@ -229,12 +252,13 @@ std::vector<PerceptronResult> train_perceptron_cuda(
         }
         const auto patterns = dataset.size();
         const auto bytes = perceptron_cuda_dataset_bytes(patterns, dimensions);
-        if (bytes > cuda_batch_memory_limit - batch_bytes) {
-            throw std::runtime_error("CUDA batch exceeds the 64 MiB / 1024 dataset batch limit");
+        if (bytes > limits.bytes - batch_bytes) {
+            throw std::runtime_error("CUDA batch exceeds available VRAM budget");
         }
         batch_bytes += bytes;
 
         const auto input_count = patterns * dimensions;
+        maximum_inputs = std::max(maximum_inputs, input_count);
         descriptors.push_back({
             total_inputs, total_labels, total_weights, total_strengths,
             patterns, dimensions, options[trial].max_epochs, options[trial].threshold
@@ -256,7 +280,6 @@ std::vector<PerceptronResult> train_perceptron_cuda(
         }
     }
 
-    initialize_device(logger);
     const auto count = datasets.size();
     std::vector<TrainingState> states(count);
     DeviceBuffer<double> device_inputs(total_inputs);
@@ -281,7 +304,7 @@ std::vector<PerceptronResult> train_perceptron_cuda(
         train_batch_epochs<<<static_cast<unsigned int>(count), threads_per_dataset>>>(
             device_inputs.get(), device_labels.get(), device_weights.get(),
             device_strengths.get(), device_potentials.get(), device_selected.get(),
-            device_descriptors.get(), device_states.get());
+            device_descriptors.get(), device_states.get(), perceptron_cuda_epoch_chunk(maximum_inputs));
         check_cuda(cudaGetLastError(), "kernel launch failed");
         check_cuda(cudaDeviceSynchronize(), "kernel execution failed");
         ++launches;
@@ -300,7 +323,8 @@ std::vector<PerceptronResult> train_perceptron_cuda(
     if (logger != nullptr) {
         logger->write(LogLevel::Debug, "perceptron",
             "cuda_batch datasets=" + std::to_string(count) +
-            "; launches=" + std::to_string(launches));
+            "; launches=" + std::to_string(launches) + "; bytes=" + std::to_string(batch_bytes) +
+            "; byte_limit=" + std::to_string(limits.bytes) + "; dataset_limit=" + std::to_string(limits.datasets));
     }
     std::vector<double> weights(total_weights);
     std::vector<double> strengths(total_strengths);

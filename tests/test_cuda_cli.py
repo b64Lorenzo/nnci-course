@@ -2,6 +2,7 @@
 import csv
 import io
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -29,6 +30,20 @@ def csv_rows(payload):
 
 
 class CudaCliTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        if not CUDA_ENABLED:
+            return
+        with tempfile.TemporaryDirectory() as directory:
+            probe = subprocess.run([str(EXECUTABLE), "--debug", "perceptron", "--validation", "--cuda"],
+                                   cwd=directory, text=True, capture_output=True, timeout=90)
+        if probe.returncode != 0:
+            raise RuntimeError(probe.stderr)
+        match = re.search(r"cuda_limits bytes=(\d+); dataset_limit=(\d+); free_bytes=(\d+); reserve_bytes=(\d+)", probe.stderr)
+        if match is None:
+            raise AssertionError("CUDA must report live VRAM and occupancy limits")
+        cls.byte_limit, cls.dataset_limit, cls.free_bytes, cls.reserve_bytes = map(int, match.groups())
+
     def run_cli(self, directory, arguments, environment=None):
         return subprocess.run([str(EXECUTABLE), "perceptron", *arguments], cwd=directory,
                               env=environment, text=True, capture_output=True, timeout=90)
@@ -46,6 +61,10 @@ class CudaCliTests(unittest.TestCase):
             self.assertIn("algorithm=synchronous-batch", first.stderr)
             snapshot = csv_snapshot(first_dir)
             self.assertEqual(snapshot, csv_snapshot(second_dir))
+            for count, used, budget, cap in re.findall(
+                    r"cuda_batch datasets=(\d+); launches=\d+; bytes=(\d+); byte_limit=(\d+); dataset_limit=(\d+)", first.stderr):
+                self.assertLessEqual(int(count), int(cap))
+                self.assertLessEqual(int(used), int(budget))
             return first, snapshot
 
     def test_all_modes_reject_cuda_in_cpu_only_build(self):
@@ -105,22 +124,38 @@ class CudaCliTests(unittest.TestCase):
                 self.assertIn(f"cuda_batch datasets={tasks};", result.stderr)
 
     def test_cuda_capacity_chunks_mixed_p_at_the_batch_limit(self):
+        if not CUDA_ENABLED:
+            self.skipTest("Native GPU contract")
+        trials = self.dataset_limit // 2 + 1
         result, _ = self.cuda_repeat([
-            "--debug", "--capacity", "--dimensions", "2", "--datasets", "513",
+            "--debug", "--capacity", "--dimensions", "2", "--datasets", str(trials),
             "--max-epochs", "2", "--p-min", "1", "--p-max", "2", "--p-step", "1", "--seed", "23"])
-        self.assertEqual(result.stderr.count("cuda_batch datasets="), 2, result.stderr)
-        self.assertIn("cuda_batch datasets=1024;", result.stderr)
-        self.assertIn("cuda_batch datasets=2;", result.stderr)
+        counts = list(map(int, re.findall(r"cuda_batch datasets=(\d+);", result.stderr)))
+        self.assertGreaterEqual(len(counts), 2)
+        self.assertEqual(sum(counts), trials * 2)
 
     def test_parallel_studies_keep_tail_and_trial_order(self):
+        if not CUDA_ENABLED:
+            self.skipTest("Native GPU contract")
+        trials = self.dataset_limit + 1
         for mode in ("--capacity", "--strength"):
             with self.subTest(mode=mode):
                 result, snapshot = self.cuda_repeat([
-                    "--debug", mode, "--dimensions", "2", "--patterns", "2", "--datasets", "1025",
+                    "--debug", mode, "--dimensions", "2", "--patterns", "2", "--datasets", str(trials),
                     "--max-epochs", "4", "--seed", "23", "--p-min", "2", "--p-max", "2"])
                 self.assertTrue(snapshot)
-                self.assertIn("cuda_batch datasets=1024;", result.stderr)
-                self.assertIn("cuda_batch datasets=1;", result.stderr)
+                counts = list(map(int, re.findall(r"cuda_batch datasets=(\d+);", result.stderr)))
+                self.assertGreaterEqual(len(counts), 2)
+                self.assertEqual(sum(counts), trials)
+
+    def test_live_policy_preserves_free_vram(self):
+        if not CUDA_ENABLED:
+            self.skipTest("Native GPU contract")
+        self.assertGreater(self.byte_limit, 0)
+        self.assertGreater(self.dataset_limit, 0)
+        self.assertEqual(self.byte_limit + self.reserve_bytes, self.free_bytes)
+        self.assertGreaterEqual(self.reserve_bytes, 256 * 1024 * 1024)
+        self.assertGreaterEqual(self.reserve_bytes, self.free_bytes // 4)
 
     def test_negative_threshold_never_reports_zero_potentials_as_converged(self):
         result, _ = self.cuda_repeat([

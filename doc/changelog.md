@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.3
+
+### Changed
+- Replace fixed CUDA buffer/dataset caps with a live VRAM budget and kernel-occupancy-based scheduling. Leave at least 256 MiB or 25% of currently free VRAM unused, whichever is larger.
+- Refresh limits between batches, pack by actual shape bytes, and validate direct backend callers before allocation. Free-memory queries are snapshots; competing GPU allocations can still cause a clear error rather than CPU fallback.
+- Reduce epoch chunks from eight towards one for larger datasets, without changing synchronous batch learning, host RNG, result order, or CPU behavior.
+
+### Tests
+- GPU-independent reserve, low-memory, occupancy/grid, exact/one-over and overflow boundaries.
+- Native/CLI adaptive batch bounds, mixed-shape tails, large-dataset launch counts, deterministic results and seeded comparisons with v0.3.2.
+
 ## 0.3.2
 
 ### Changed

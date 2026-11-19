@@ -96,6 +96,10 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
+    add_executable(nnci_cuda_limit_tests tests/cuda_limit_tests.cpp)
+    target_include_directories(nnci_cuda_limit_tests PRIVATE include src)
+    add_test(NAME nnci_cuda_limits COMMAND nnci_cuda_limit_tests)
+
     if(NNCI_ENABLE_CUDA)
         add_executable(nnci_cuda_tests tests/cuda_tests.cpp)
         target_link_libraries(nnci_cuda_tests PRIVATE nnci_perceptron)

@@ -1,10 +1,14 @@
 #include "nnci/assignments.hpp"
+#include "nnci/logging.hpp"
 #include "../src/perceptron_backend.hpp"
 #include "batch_reference.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <iterator>
 #include <limits>
 #include <random>
 #include <stdexcept>
@@ -55,43 +59,19 @@ void test_last_epoch_separable_parity() {
 }
 
 void test_batch_budget_is_checked_before_allocation() {
-    require(nnci::detail::perceptron_cuda_batch_size(2, 2) == 1024,
-            "Small independent trials should fill a parallel batch");
-    const auto count = nnci::detail::perceptron_cuda_batch_size(1000, 1000);
-    require(count > 0 && count < 1024, "Large datasets must reduce the batch size");
-    for (const auto shape : std::vector<std::pair<std::size_t, std::size_t>>{
-             {0, 1}, {1, 0}, {1, std::numeric_limits<std::size_t>::max()},
-             {std::numeric_limits<std::size_t>::max(), 2}, {10000, 10000}}) {
-        bool rejected = false;
-        try {
-            (void)nnci::detail::perceptron_cuda_batch_size(shape.first, shape.second);
-        } catch (const std::runtime_error&) {
-            rejected = true;
-        }
-        require(rejected, "Invalid, overflowed and over-budget shapes must be rejected");
-    }
-    const auto exact_patterns =
-        (nnci::detail::cuda_batch_memory_limit - sizeof(double) -
-         sizeof(nnci::detail::CudaDatasetDescriptor) -
-         nnci::detail::cuda_batch_state_bytes) /
-        (3 * sizeof(double) + sizeof(int) + sizeof(unsigned char));
-    require(nnci::detail::perceptron_cuda_batch_size(exact_patterns, 1) == 1,
-            "The exact resident-memory boundary must fit one dataset");
-    bool rejected_boundary = false;
-    try {
-        (void)nnci::detail::perceptron_cuda_batch_size(exact_patterns + 1, 1);
-    } catch (const std::runtime_error&) {
-        rejected_boundary = true;
-    }
-    require(rejected_boundary, "One pattern beyond the memory boundary must be rejected");
-    std::vector<nnci::detail::PerceptronDataset> excessive(1025, {{{1.0}, 1}});
+    const auto limits = nnci::detail::perceptron_cuda_limits();
+    const auto count = nnci::detail::perceptron_cuda_batch_size(2, 2, limits);
+    require(count > 0 && count <= limits.datasets &&
+            count <= limits.bytes / nnci::detail::perceptron_cuda_dataset_bytes(2, 2),
+            "Real CUDA batches must respect live byte and occupancy limits");
+    std::vector<nnci::detail::PerceptronDataset> excessive(limits.datasets + 1, {{{1.0}, 1}});
     bool rejected = false;
     try {
         (void)nnci::detail::train_perceptron_cuda(excessive, 1, 0, nullptr);
     } catch (const std::runtime_error& error) {
-        rejected = std::string(error.what()).find("batch limit") != std::string::npos;
+        rejected = std::string(error.what()).find("dataset limit") != std::string::npos;
     }
-    require(rejected, "The backend must enforce its budget even for direct batch callers");
+    require(rejected, "Direct batch callers must not bypass the dynamic dataset limit");
 }
 
 void compare_twice(const std::vector<nnci::LabeledExample>& examples,
@@ -151,6 +131,20 @@ void test_work_chunks_resume_inside_patterns_and_epochs() {
     compare_twice(long_features, 2, 0);
     const std::vector<nnci::LabeledExample> many_patterns(5003, {{0.0, 0.0, 0.0}, 1});
     compare_twice(many_patterns, 3, 0);
+    const std::vector<nnci::LabeledExample> large(4097, {nnci::Vector(257, 0.0), 1});
+    std::filesystem::path log_file;
+    {
+        nnci::Logger logger(nnci::LogLevel::Debug,
+            std::filesystem::temp_directory_path() / "nnci-large-cuda-test");
+        const auto result = nnci::train_rosenblatt_perceptron(large, 2, 0, &logger, true);
+        require(!result.converged && result.epochs == 2 && result.updates == 2 * large.size(),
+                "Large datasets must retain epoch/update semantics across shorter launches");
+        log_file = logger.log_file();
+    }
+    std::ifstream stream(log_file);
+    const std::string log{std::istreambuf_iterator<char>(stream), {}};
+    require(log.find("cuda_batch datasets=1; launches=2;") != std::string::npos,
+            "The runtime must apply the reduced epoch chunk, not only calculate it");
 }
 
 void test_mixed_shape_batch_matches_cpu_and_keeps_order() {

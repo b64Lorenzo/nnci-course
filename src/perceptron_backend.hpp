@@ -9,11 +9,14 @@ namespace nnci::detail {
 
 using PerceptronDataset = std::vector<LabeledExample>;
 
-inline constexpr std::size_t cuda_batch_memory_limit = 64 * 1024 * 1024;
-inline constexpr std::size_t cuda_batch_dataset_limit = 1024;
 inline constexpr std::size_t cuda_batch_state_bytes = 128;
 inline constexpr std::size_t cuda_pattern_storage_bytes =
     sizeof(int) + 2 * sizeof(double) + sizeof(unsigned char);
+
+struct CudaBatchLimits {
+    std::size_t bytes;
+    std::size_t datasets;
+};
 
 struct CudaTrainingOptions {
     std::size_t max_epochs;
@@ -34,7 +37,7 @@ struct CudaDatasetDescriptor {
 [[nodiscard]] inline std::size_t perceptron_cuda_dataset_bytes(
     std::size_t patterns, std::size_t dimensions) {
     const auto overflow = [] {
-        throw std::runtime_error("CUDA dataset exceeds the 64 MiB batch limit");
+        throw std::runtime_error("CUDA dataset size is invalid or out of range");
     };
     const auto maximum = std::numeric_limits<std::size_t>::max();
     if (patterns == 0 || dimensions == 0 || patterns > maximum / dimensions) {
@@ -47,26 +50,41 @@ struct CudaDatasetDescriptor {
         overflow();
     }
     const auto inputs = input_values * sizeof(double);
-    const auto labels_and_strengths = patterns * cuda_pattern_storage_bytes;
+    const auto pattern_buffers = patterns * cuda_pattern_storage_bytes;
     const auto weights = dimensions * sizeof(double);
     const auto overhead = sizeof(CudaDatasetDescriptor) + cuda_batch_state_bytes;
-    if (inputs > maximum - labels_and_strengths ||
-        inputs + labels_and_strengths > maximum - weights ||
-        inputs + labels_and_strengths + weights > maximum - overhead) {
+    if (inputs > maximum - pattern_buffers ||
+        inputs + pattern_buffers > maximum - weights ||
+        inputs + pattern_buffers + weights > maximum - overhead) {
         overflow();
     }
-    const auto bytes = inputs + labels_and_strengths + weights + overhead;
-    if (bytes > cuda_batch_memory_limit) {
-        overflow();
-    }
+    const auto bytes = inputs + pattern_buffers + weights + overhead;
     return bytes;
 }
 
-// Bound resident device buffers before allocating or generating a batch.
+// Preserve headroom; eight resident-block waves amortize batch transfers.
+[[nodiscard]] inline CudaBatchLimits make_cuda_batch_limits(
+    std::size_t free_bytes, std::size_t resident_blocks, std::size_t grid_limit) {
+    const auto reserve = std::max<std::size_t>(256 * 1024 * 1024, free_bytes / 4);
+    const auto bytes = free_bytes > reserve ? free_bytes - reserve : 0;
+    const auto waves = resident_blocks > grid_limit / 8 ? grid_limit : resident_blocks * 8;
+    return {bytes, std::min(waves, bytes / perceptron_cuda_dataset_bytes(1, 1))};
+}
+
+[[nodiscard]] CudaBatchLimits perceptron_cuda_limits(Logger* logger = nullptr);
+
+[[nodiscard]] inline unsigned int perceptron_cuda_epoch_chunk(std::size_t input_values) {
+    const auto work = 1024 * 1024 / std::max<std::size_t>(1, input_values);
+    return static_cast<unsigned int>(std::clamp<std::size_t>(work, 1, 8));
+}
+
 [[nodiscard]] inline std::size_t perceptron_cuda_batch_size(
-    std::size_t patterns, std::size_t dimensions) {
-    return std::min(cuda_batch_dataset_limit,
-                    cuda_batch_memory_limit / perceptron_cuda_dataset_bytes(patterns, dimensions));
+    std::size_t patterns, std::size_t dimensions,
+    CudaBatchLimits limits = perceptron_cuda_limits()) {
+    const auto count = std::min(limits.datasets,
+        limits.bytes / perceptron_cuda_dataset_bytes(patterns, dimensions));
+    if (count == 0) throw std::runtime_error("CUDA dataset exceeds available VRAM budget");
+    return count;
 }
 
 // Private batch interface: independent datasets in, results in the same order out.

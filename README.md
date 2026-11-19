@@ -60,7 +60,7 @@ ctest --test-dir build-cuda --output-on-failure
 
 CUDA capacity/NCapacity execution still batches independent P, N, and trial datasets together. Since v0.3.2, each dataset also uses synchronous batch learning: classify every pattern from the same weights, reduce all selected Hebbian terms in parallel, apply their sum divided by N once, and recompute all potentials in parallel. Convergence requires `min(E) > 0`; no selected patterns alone is not convergence. CPU training remains online, so CPU and CUDA results need not match. See [algorithm](doc/algorithm.md) for the exact recurrence.
 
-Host RNG and result order remain unchanged. Batches are bounded to 1024 datasets and 64 MiB of resident device buffers; a dataset that cannot fit is rejected. Each cooperative dataset block runs at most eight epochs per launch. Small or single-dataset jobs can be slower than CPU execution. See [development](doc/development.md) for architecture overrides and GPU test selection.
+Host RNG and result order remain unchanged. CUDA batches use a live free-VRAM budget, leaving at least 256 MiB or 25% of the currently free VRAM unused (whichever is larger). The dataset cap follows kernel occupancy and GPU size, then actual dataset bytes further limit each batch. Limits refresh between batches. Large datasets use shorter epoch chunks, up to eight epochs per launch. Host staging requires additional RAM; competing GPU users can still change availability after a query. Small jobs can be slower than CPU execution. See [development](doc/development.md) for details.
 
 ## More
 

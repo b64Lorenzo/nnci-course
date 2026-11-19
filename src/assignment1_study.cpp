@@ -33,8 +33,9 @@ void run_trials(
         return;
     }
 
-    const auto batch_limit = detail::perceptron_cuda_batch_size(patterns, dimensions);
     for (std::size_t first = 0; first < trials;) {
+        const auto batch_limit = detail::perceptron_cuda_batch_size(
+            patterns, dimensions, detail::perceptron_cuda_limits(logger));
         const auto count = std::min(batch_limit, trials - first);
         std::vector<detail::PerceptronDataset> batch;
         batch.reserve(count);
@@ -225,10 +226,10 @@ std::vector<std::vector<CapacityPoint>> estimate_perceptron_capacity_parallel(
     const auto worker_count = mode == CapacityExecutionMode::CpuParallel
         ? std::min(total_tasks, hardware_threads)
         : std::size_t{0};
-    const auto batch_limit = mode == CapacityExecutionMode::Cuda
-        ? detail::cuda_batch_dataset_limit
-        : worker_count;
-    const auto study_group_size = batch_limit;
+    auto limits = mode == CapacityExecutionMode::Cuda
+        ? detail::perceptron_cuda_limits(logger)
+        : detail::CudaBatchLimits{capacity_batch_memory_limit, worker_count};
+    const auto study_group_size = limits.datasets;
     std::unique_ptr<ThreadPool> workers;
     if (mode == CapacityExecutionMode::CpuParallel) {
         workers = std::make_unique<ThreadPool>(worker_count);
@@ -239,8 +240,8 @@ std::vector<std::vector<CapacityPoint>> estimate_perceptron_capacity_parallel(
         }
     } else if (logger != nullptr) {
         logger->write(LogLevel::Debug, "capacity",
-            "scheduler=cuda-batched; dataset_limit=" + std::to_string(batch_limit) +
-            "; batch_memory_limit=" + std::to_string(capacity_batch_memory_limit));
+            "scheduler=cuda-batched; dataset_limit=" + std::to_string(limits.datasets) +
+            "; batch_memory_limit=" + std::to_string(limits.bytes));
     }
 
     std::vector<std::vector<CapacityPoint>> points(studies.size());
@@ -252,7 +253,7 @@ std::vector<std::vector<CapacityPoint>> estimate_perceptron_capacity_parallel(
     }
 
     std::vector<CapacityTask> batch;
-    batch.reserve(batch_limit);
+    batch.reserve(limits.datasets);
     std::size_t batch_bytes = 0;
 
     const auto process_batch = [&] {
@@ -323,6 +324,7 @@ std::vector<std::vector<CapacityPoint>> estimate_perceptron_capacity_parallel(
         }
         batch.clear();
         batch_bytes = 0;
+        if (mode == CapacityExecutionMode::Cuda) limits = detail::perceptron_cuda_limits(logger);
     };
 
     struct StudyCursor {
@@ -363,9 +365,11 @@ std::vector<std::vector<CapacityPoint>> estimate_perceptron_capacity_parallel(
                     ? detail::perceptron_cuda_dataset_bytes(patterns, study.dimensions)
                     : host_task_bytes(patterns, study.dimensions);
                 const bool exceeds_memory = !batch.empty() &&
-                    (batch_bytes >= capacity_batch_memory_limit ||
-                     bytes > capacity_batch_memory_limit - batch_bytes);
-                if (batch.size() >= batch_limit || exceeds_memory) process_batch();
+                    (batch_bytes >= limits.bytes || bytes > limits.bytes - batch_bytes);
+                if (batch.size() >= limits.datasets || exceeds_memory) process_batch();
+                if (mode == CapacityExecutionMode::Cuda && bytes > limits.bytes) {
+                    throw std::runtime_error("CUDA dataset exceeds available VRAM budget");
+                }
 
                 if (!study_started[cursor.study_index]) {
                     study_started[cursor.study_index] = true;
@@ -396,11 +400,10 @@ std::vector<std::vector<CapacityPoint>> estimate_perceptron_capacity_parallel(
                     std::move(examples), {study.max_epochs, study.threshold}
                 });
                 ++cursor.trial_index;
-                batch_bytes = bytes > capacity_batch_memory_limit
-                    ? capacity_batch_memory_limit
+                batch_bytes = bytes > limits.bytes
+                    ? limits.bytes
                     : batch_bytes + bytes;
-                if (batch.size() >= batch_limit ||
-                    batch_bytes >= capacity_batch_memory_limit) {
+                if (batch.size() >= limits.datasets || batch_bytes >= limits.bytes) {
                     process_batch();
                 }
             }

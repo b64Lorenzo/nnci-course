@@ -138,6 +138,7 @@ jobs:
           CPU execution is the default. Pass --cuda to use an NVIDIA GPU with a CUDA-13.4-compatible driver. The CUDA runtime is statically linked; no toolkit installation is required to run this package. Built GPU architectures: 75, 80, 86, 89, 90, with PTX forward compatibility. NVIDIA runtime terms are in CUDA_LICENSE.txt.
           For CPU capacity or NCapacity studies, pass --parallelize to run independent work on a bounded worker pool. It cannot be combined with --cuda.
           Since v0.3.2, CUDA uses synchronous batch Hebbian updates and converges only when every new signed potential is positive. CPU training remains online; results can differ. See doc/algorithm.md.
+          Since v0.3.3, CUDA batch limits adapt to free VRAM and kernel occupancy, leaving the larger of 256 MiB or 25% of free VRAM at query time. This is not a reservation against other applications; see doc/development.md.
 
           ## Docs
 
@@ -161,6 +162,7 @@ jobs:
 
           Optional GPU execution: append --cuda. CPU remains the default.
           CUDA uses synchronous batch Hebbian learning; CPU uses online updates. See doc/algorithm.md.
+          CUDA batch sizes adapt to free VRAM and occupancy, leaving max(256 MiB, 25% free) at query time. See doc/development.md.
           Use --parallelize to run independent CPU capacity/NCapacity tasks concurrently; it cannot be combined with --cuda.
           An NVIDIA GPU and CUDA-13.4-compatible driver are required for --cuda.
           No toolkit is required at runtime. See CUDA_LICENSE.txt for NVIDIA terms.
